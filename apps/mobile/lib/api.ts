@@ -3,6 +3,7 @@ import type {
   BotSection,
   ComputerMode,
   Group,
+  GroupDetail,
   Me,
   MessageBlock,
   ModelCatalogEntry,
@@ -220,6 +221,31 @@ export type MobileGroup = Pick<
   | "members"
 >;
 
+export type MobileGroupDetail = MobileGroup &
+  Pick<GroupDetail, "creatorBotId" | "sharedContext" | "creatorContext">;
+
+export function mobileGroupContextPresentation(group: MobileGroupDetail) {
+  const creatorName = group.creatorBotId
+    ? (group.members.find((member) => member.botId === group.creatorBotId)?.name ?? "Unknown bot")
+    : "Deleted bot";
+  return {
+    creatorName,
+    sharedContext: group.sharedContext ?? "No shared starting context was provided.",
+    creatorContext: group.creatorContext ?? "No creator-only starting context was provided.",
+  };
+}
+
+export function openMobileGroup(
+  navigate: (target: {
+    pathname: "/group-thread";
+    params: { groupId: string; name: string };
+  }) => void,
+  groupId: string,
+  name: string,
+) {
+  navigate({ pathname: "/group-thread", params: { groupId, name } });
+}
+
 export type MobileSnapshot = {
   botId?: string;
   groupId?: string;
@@ -284,6 +310,12 @@ export function blockText(message: MobileMessage) {
       if (block.kind === "child_bot") {
         return `${block.status === "archived" ? "Archived" : block.status === "deleted" ? "Deleted" : "Bot"} ${block.name ?? ""}`;
       }
+      if (block.kind === "child_group") {
+        return `Group ${block.name} (${block.memberCount} members)`;
+      }
+      if (block.kind === "group_context") {
+        return `Shared starting context from ${block.creatorBotName}: ${block.text}`;
+      }
       if (block.kind === "chart") return `[chart: ${block.name ?? "chart"}]`;
       if (block.kind === "image") return `[image: ${block.name ?? "attachment"}]`;
       if (block.kind === "file") {
@@ -300,7 +332,7 @@ export function blockText(message: MobileMessage) {
     .join("\n");
 }
 
-type ThreadEvent = {
+export type ThreadEvent = {
   id?: string;
   botId?: string;
   type: string;
@@ -308,6 +340,22 @@ type ThreadEvent = {
   runId?: string;
   payload?: Record<string, unknown>;
 };
+
+export function mobileThreadEventCreatesGroup(event: ThreadEvent): boolean {
+  if (event.type === "group.created") return true;
+  if (event.type !== "thread.message.created") return false;
+  const blocks = event.payload?.blocks;
+  return (
+    Array.isArray(blocks) &&
+    blocks.some(
+      (block) =>
+        typeof block === "object" &&
+        block !== null &&
+        "kind" in block &&
+        block.kind === "child_group",
+    )
+  );
+}
 
 function takeMobileLiveMessage(
   snapshot: MobileSnapshot,

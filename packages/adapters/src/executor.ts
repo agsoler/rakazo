@@ -76,6 +76,7 @@ import {
   messageConnectedAgent,
   respondAgentConnection,
 } from "./agent-connections.js";
+import { createAgentGroup } from "./agent-groups.js";
 import { buildApprovalAskBlock } from "./approval-ask.js";
 import {
   approvalPausedToolResult,
@@ -2208,6 +2209,54 @@ export function createRunExecutor(deps: ExecutorDeps) {
             }
             return spawned;
           }
+          if (name === "create_group") {
+            const created = await createAgentGroup(deps.prisma, {
+              creator: {
+                id: bot.id,
+                name: bot.name,
+                workspaceId: bot.workspaceId,
+                userId: run.userId,
+              },
+              createKey: executionId,
+              name: String(args.name ?? ""),
+              memberBotIds: args.member_bot_ids,
+              sharedContext:
+                typeof args.shared_context === "string"
+                  ? redactSecrets(args.shared_context, runSecrets)
+                  : undefined,
+              creatorContext:
+                typeof args.creator_context === "string"
+                  ? redactSecrets(args.creator_context, runSecrets)
+                  : undefined,
+            });
+            if ("error" in created) return finish(created);
+            if (!(await persistEffectResult(created))) return uncertainEffectResult(name);
+            try {
+              await publishMessage(deps, run, "bot", [
+                {
+                  kind: "child_group",
+                  groupId: created.groupId,
+                  name: created.name,
+                  memberCount: created.memberCount,
+                },
+              ]);
+              await deps.events.append({
+                workspaceId: run.workspaceId,
+                threadId: thread.id,
+                botId: bot.id,
+                runId: run.id,
+                type: "group.created",
+                payload: {
+                  groupId: created.groupId,
+                  name: created.name,
+                  memberCount: created.memberCount,
+                },
+              });
+            } catch (error) {
+              console.error("created group notification", error);
+            }
+            return created;
+          }
           if (name === "message_bot") {
             const sent = await messageBot(
               deps,
@@ -2440,6 +2489,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 workspaceInstruction,
                 "A bot and a subagent are different. Never use both for the same request.",
                 "spawn_bot creates a lasting regular bot (own chat, computer, memory) that appears in the user's bot list. If the user asked to create a bot, call spawn_bot once and stop. Do not run_subagent to demo it.",
+                "create_group creates a lasting shared group with you and selected active bots. You decide whether to provide shared starting context, creator-only starting context, both, or neither. Creation never starts work or wakes members; after creating it, let the user open the group and explicitly begin.",
                 "run_subagent is a short helper inside this turn only. It is not a bot, has no thread, and does not show in the list. Use it for parallel work you will summarize here.",
                 botDirectory,
                 "archive_bot safely archives a bot this bot created, and only that bot. Use it when the user asks to remove that bot or when it is finished and unused. The user can restore it or permanently delete it later. confirm_name must exactly match its name.",

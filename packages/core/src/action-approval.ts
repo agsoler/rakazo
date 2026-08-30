@@ -14,6 +14,7 @@ const APPROVAL_EXEMPT_TOOLS = new Set([
   "request_secret",
   "run_subagent",
   "spawn_bot",
+  "create_group",
   "schedule_create",
   "schedule_list",
   "schedule_cancel",

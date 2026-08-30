@@ -2249,6 +2249,117 @@ describeJourneys("required product journeys", () => {
     });
     expect(afterFire.status).toBeGreaterThanOrEqual(400);
   });
+
+  it("24: a coordinator bot creates a contextual project group without starting it", async () => {
+    const cookie = await signup(app, `context-group-j-${stamp}@rakazo.test`, "Context Group");
+    const coordinator = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Coordinator",
+      title: "Coordinates projects",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const researcher = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Researcher",
+      title: "Finds evidence",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const writer = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Writer",
+      title: "Drafts reports",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const shared = `requirements-${stamp}`;
+    const privateNotes = `coordination-only-${stamp}`;
+    await sendAndWait(
+      app,
+      cookie,
+      coordinator.id,
+      `create a group named Project team with bot ids ${researcher.id},${writer.id}; shared context [${shared}] creator context [${privateNotes}]`,
+    );
+
+    const groups = await rpc<Array<{ id: string; name: string; members: unknown[] }>>(
+      app,
+      cookie,
+      "groups/list",
+    );
+    const group = groups.find((row) => row.name === "Project team");
+    expect(group?.members).toHaveLength(3);
+    const detail = await rpc<{
+      id: string;
+      threadId: string;
+      creatorBotId: string | null;
+      sharedContext: string | null;
+      creatorContext: string | null;
+      messages: Array<{ blocks: unknown }>;
+    }>(app, cookie, "groups/get", { groupId: group!.id });
+    expect(detail.creatorBotId).toBe(coordinator.id);
+    expect(detail.sharedContext).toBe(shared);
+    expect(detail.creatorContext).toBe(privateNotes);
+    expect(JSON.stringify(detail.messages)).toContain(shared);
+    expect(JSON.stringify(detail.messages)).not.toContain(privateNotes);
+    expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBe(0);
+    expect(await prisma.task.count({ where: { threadId: detail.threadId } })).toBe(0);
+
+    const parent = await rpc<Snap>(app, cookie, "threads/get", { botId: coordinator.id });
+    const childGroupCard = parent.messages
+      .flatMap((message) => message.blocks)
+      .find(
+        (block) =>
+          block && typeof block === "object" && "kind" in block && block.kind === "child_group",
+      );
+    expect(childGroupCard).toMatchObject({ name: "Project team", memberCount: 3 });
+    expect(JSON.stringify(childGroupCard)).not.toContain(privateNotes);
+    const createdEvent = await prisma.event.findFirst({
+      where: { threadId: parent.threadId, type: "group.created" },
+      orderBy: { seq: "desc" },
+    });
+    expect(JSON.stringify(createdEvent?.payload)).not.toContain(privateNotes);
+
+    await sendGroupAndWait(app, cookie, group!.id, "Begin by outlining the requirements.");
+    expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBeGreaterThan(0);
+  });
+
+  it("25: a role-playing group keeps private plot notes from other members and waits for the user", async () => {
+    const cookie = await signup(app, `roleplay-group-j-${stamp}@rakazo.test`, "Roleplay Group");
+    const gm = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "GM",
+      title: "Facilitator",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const player = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Player",
+      title: "Participant",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    await sendAndWait(
+      app,
+      cookie,
+      gm.id,
+      `create a group named Evening story with bot ids ${player.id}; shared context [The game begins at the harbour.] creator context [The captain is the hidden antagonist.]`,
+    );
+    const group = (await rpc<Array<{ id: string; name: string }>>(app, cookie, "groups/list")).find(
+      (row) => row.name === "Evening story",
+    );
+    const detail = await rpc<{
+      threadId: string;
+      creatorContext: string | null;
+      messages: Array<{ blocks: unknown }>;
+    }>(app, cookie, "groups/get", { groupId: group!.id });
+    expect(detail.creatorContext).toBe("The captain is the hidden antagonist.");
+    expect(JSON.stringify(detail.messages)).not.toContain("hidden antagonist");
+    expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBe(0);
+    await sendGroupAndWait(app, cookie, group!.id, "GM, set the scene and start the game.");
+    expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBeGreaterThan(0);
+  });
 });
 
 type Me = { workspaceId: string; userId: string; canChooseHostComputer: boolean };

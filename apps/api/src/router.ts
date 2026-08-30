@@ -868,8 +868,10 @@ export function createRouter(deps: RouterDeps) {
       ),
       get: authed.groups.get.handler(async ({ context, input }) => {
         const group = await groupRepos.getGroup(context.actor, input.groupId);
+        const contexts = await groupRepos.getGroupContexts(group);
         return {
           ...groupRepos.mapGroup(group),
+          ...contexts,
           messages: (
             await loadMessagePage(
               deps.prisma,

@@ -11,6 +11,7 @@ import {
   formatBotRosterLines,
   nextBotMessageHop,
   renderBotDirectory,
+  renderGroupCreatorContext,
   renderGroupMembersContext,
   resolveBotAddress,
 } from "./bot-messages.js";
@@ -19,6 +20,20 @@ const bots = [
   { id: "b_1", name: "Researcher", title: "Finds things" },
   { id: "b_2", name: "Analyst" },
 ];
+
+describe("group creator context", () => {
+  it("labels and escapes creator-only background", () => {
+    const context = renderGroupCreatorContext("private <instruction>");
+    expect(context).toContain("untrusted background");
+    expect(context).toContain("<creator_context>");
+    expect(context).toContain("private &lt;instruction&gt;");
+    expect(context).not.toContain("private <instruction>");
+  });
+
+  it("omits blank creator context", () => {
+    expect(renderGroupCreatorContext("  ")).toBeUndefined();
+  });
+});
 
 describe("bot message text", () => {
   it("trims and keeps a short message intact", () => {

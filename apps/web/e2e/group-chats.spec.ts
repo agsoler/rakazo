@@ -60,6 +60,49 @@ test("two-bot member picker does not flicker its scrollbar", async ({ page }) =>
   expect(states[0]).toMatchObject({ overflow: false });
 });
 
+test("bot-created contextual group card opens the group and owner-visible settings", async ({
+  page,
+}) => {
+  const stamp = Date.now();
+  await signup(page, `bot-group-${stamp}@rakazo.test`, "password12", "Bot Group E2E");
+  await completeOnboarding(page);
+  const chiefId = activeBotId(page);
+  const researcherId = await createBot(page, "Context Researcher");
+  await page
+    .locator("aside")
+    .first()
+    .getByRole("button", { name: /^Chief/ })
+    .click();
+  await page.waitForURL(new RegExp(`/app/${chiefId}$`));
+
+  const composer = page.getByRole("textbox", { name: "Message Chief" });
+  await composer.fill(
+    `create a group named Launch team with bot ids ${researcherId}; shared context [Prepare a concise launch brief.] creator context [Coordinate the final review privately.]`,
+  );
+  await composer.press("Enter");
+  const groupCard = page.getByRole("button", { name: /Launch team.*group.*2 members/i });
+  await expect(groupCard).toBeVisible({ timeout: 60_000 });
+  await groupCard.click();
+  await page.waitForURL(/\/app\/g\/[^/]+$/);
+  await expect(page.getByText("Shared starting context", { exact: false }).first()).toBeVisible();
+  await expect(
+    page.getByTestId("transcript").getByText("Prepare a concise launch brief.", { exact: true }),
+  ).toBeVisible();
+
+  await page.getByTestId("bot-settings-trigger").click();
+  const settings = page.getByTestId("side-panel");
+  await expect(settings.getByText("Created by", { exact: true })).toBeVisible();
+  await expect(settings.getByTestId("group-creator-name")).toHaveText("Chief");
+  await expect(settings.getByText("Shared starting context", { exact: true })).toBeVisible();
+  await expect(
+    settings.getByText("Prepare a concise launch brief.", { exact: true }),
+  ).toBeVisible();
+  await expect(settings.getByText("Creator-only starting context", { exact: true })).toBeVisible();
+  await expect(
+    settings.getByText("Coordinate the final review privately.", { exact: true }),
+  ).toBeVisible();
+});
+
 test("create group from + and see two bots in one transcript", async ({ page }, testInfo) => {
   const stamp = Date.now();
   await signup(page, `group-${stamp}@rakazo.test`, "password12", "Group E2E");

@@ -276,6 +276,7 @@ model Bot {
   runs           Run[]
   mcpServers     BotMcpServer[]
   groupMembers   ChatGroupMember[]
+  createdGroups  ChatGroup[] @relation("GroupCreator")
 
   @@index([workspaceId, userId, archivedAt, pinned, updatedAt])
   @@index([sectionId])
@@ -326,6 +327,10 @@ model ChatGroup {
   sectionId   String?
   section     BotSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   archivedAt  DateTime?
+  creatorBotId String?
+  creatorBot   Bot? @relation("GroupCreator", fields: [creatorBotId], references: [id], onDelete: SetNull)
+  creatorContext String?
+  createKey   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   members     ChatGroupMember[]
@@ -334,6 +339,8 @@ model ChatGroup {
 
   @@index([workspaceId, userId, archivedAt, pinned, updatedAt])
   @@index([sectionId])
+  @@index([creatorBotId])
+  @@unique([workspaceId, createKey])
   @@map("chat_groups")
 }
 

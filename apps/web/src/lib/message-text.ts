@@ -10,6 +10,7 @@ export function copyableMessageText(message: ThreadMessage): string {
       if (block.kind === "text" || block.kind === "progress" || block.kind === "ask") {
         return block.text;
       }
+      if (block.kind === "group_context") return block.text;
       return "";
     })
     .filter(Boolean)

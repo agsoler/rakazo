@@ -11,6 +11,7 @@ import type {
   Connection,
   ConnectionCatalogItem,
   Group,
+  GroupDetail,
   Me,
   MessageBlock,
   ModelCatalogEntry,
@@ -270,6 +271,7 @@ export function ShellPage() {
   const session = authClient.useSession();
   const userId = session.data?.user.id;
   const [groups, setGroups] = useState<Group[]>([]);
+  const [groupDetail, setGroupDetail] = useState<GroupDetail | null>(null);
   const [bots, setBots] = useState<Bot[]>([]);
   const botsRef = useRef(bots);
   botsRef.current = bots;
@@ -469,6 +471,23 @@ export function ShellPage() {
   const inGroup = Boolean(groupId);
   const active = inGroup ? undefined : (bots.find((b) => b.id === botId) ?? bots[0]);
   const activeGroup = groups.find((group) => group.id === groupId);
+  useEffect(() => {
+    if (panel !== "group-settings" || !activeGroup) {
+      setGroupDetail(null);
+      return;
+    }
+    let current = true;
+    setGroupDetail(null);
+    void rpc.groups
+      .get({ groupId: activeGroup.id })
+      .then((detail) => {
+        if (current) setGroupDetail(detail);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [activeGroup, panel]);
   const activePendingAttachments = useMemo(
     () => attachmentsForThread(pendingAttachments, inGroup ? groupId : active?.id),
     [active?.id, groupId, inGroup, pendingAttachments],
@@ -1108,6 +1127,7 @@ export function ShellPage() {
               void refreshBots(true).catch(() => undefined);
             } else if (
               event.type === "bot.spawned" ||
+              event.type === "group.created" ||
               event.type === "bot.deleted" ||
               event.type === "run.started" ||
               isRunTerminalEvent(event) ||
@@ -1117,7 +1137,9 @@ export function ShellPage() {
             }
             if (event.type === "thread.message.created") {
               const blocks = (event.payload.blocks as Array<{ kind?: string }>) ?? [];
-              if (blocks.some((block) => block.kind === "child_bot")) {
+              if (
+                blocks.some((block) => block.kind === "child_bot" || block.kind === "child_group")
+              ) {
                 void refreshBots().catch(() => undefined);
               }
               if (event.payload.role === "bot") markBotReadIfVisible(active.id);
@@ -1695,6 +1717,7 @@ export function ShellPage() {
   }, [active, groupId, inGroup, snapshot?.botId, snapshot?.groupId, snapshot?.threadId]);
 
   const openBot = useCallback((id: string) => navigate(`/app/${id}`), [navigate]);
+  const openGroup = useCallback((id: string) => navigate(`/app/g/${id}`), [navigate]);
   const loadOlder = useCallback(() => loadOlderMessagesRef.current(), []);
   const jumpToReplyMessage = useCallback((messageId: string) => {
     const existing = document.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`);
@@ -2756,6 +2779,7 @@ export function ShellPage() {
           workingBots={workingBots}
           onLoadOlder={loadOlder}
           onOpenBot={openBot}
+          onOpenGroup={openGroup}
           onAnswer={answerMessage}
           onReply={setReplyTarget}
           onJumpToMessage={jumpToReplyMessage}
@@ -3025,6 +3049,7 @@ export function ShellPage() {
               <GroupSettings
                 key={activeGroup.id}
                 group={activeGroup}
+                detail={groupDetail}
                 bots={bots}
                 onSave={async (input) => {
                   const updated = await rpc.groups.update({ groupId: activeGroup.id, ...input });
@@ -3664,6 +3689,7 @@ const Transcript = memo(function Transcript({
   workingBots,
   onLoadOlder,
   onOpenBot,
+  onOpenGroup,
   onAnswer,
   onReply,
   onJumpToMessage,
@@ -3687,6 +3713,7 @@ const Transcript = memo(function Transcript({
   workingBots: GroupAvatarMember[];
   onLoadOlder: () => void | Promise<void>;
   onOpenBot: (botId: string) => void;
+  onOpenGroup: (groupId: string) => void;
   onAnswer: (message: ThreadMessage, text: string) => Promise<void>;
   onReply: (message: ThreadMessage) => void;
   onJumpToMessage: (messageId: string) => void;
@@ -3845,6 +3872,7 @@ const Transcript = memo(function Transcript({
               message={message}
               canAnswer={message.id === answerableAskMessageId}
               onOpenBot={onOpenBot}
+              onOpenGroup={onOpenGroup}
               onOpenPeerMessages={onOpenPeerMessages}
               onAnswer={onAnswer}
               speakerName={message.role === "bot" ? memberName?.(message.botId) : undefined}
@@ -4630,6 +4658,7 @@ const MessageView = memo(function MessageView({
   message,
   onAnswer,
   onOpenBot,
+  onOpenGroup,
   onOpenPeerMessages,
   speakerName,
   memberName,
@@ -4649,6 +4678,7 @@ const MessageView = memo(function MessageView({
   message: ThreadMessage;
   onAnswer: (message: ThreadMessage, text: string) => Promise<void>;
   onOpenBot: (botId: string) => void;
+  onOpenGroup: (groupId: string) => void;
   onOpenPeerMessages: (peerBotId: string) => void;
   speakerName?: string;
   memberName?: (botId: string | undefined) => string | undefined;
@@ -4742,6 +4772,18 @@ const MessageView = memo(function MessageView({
     <>
       {messageContext}
       {message.blocks.map((block, i) => {
+        if (block.kind === "group_context") {
+          return (
+            <BuiCard key={i} className="w-[min(620px,94%)] border border-[#2B2B30] px-[18px] py-4">
+              <div className="text-[13px] font-medium uppercase tracking-wide text-[#85858A]">
+                <Trans>Shared starting context</Trans> · {block.creatorBotName}
+              </div>
+              <div className="mt-2 text-[15px] leading-6 text-[#D5D5D9]" dir="auto">
+                <ChatMarkdown>{block.text}</ChatMarkdown>
+              </div>
+            </BuiCard>
+          );
+        }
         if (block.kind === "handoff") {
           const from = memberName?.(block.fromBotId) ?? t`bot`;
           const to = memberName?.(block.toBotId) ?? t`bot`;
@@ -4898,6 +4940,30 @@ const MessageView = memo(function MessageView({
                     : t`Removed with chat, computer, and memory.`
                   : block.title || t`Opened its thread.`}
               </div>
+            </button>
+          );
+        }
+        if (block.kind === "child_group") {
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onOpenGroup(block.groupId)}
+              className="w-[min(340px,90%)] text-start"
+            >
+              <BuiCard className="border border-[#2B2B30] px-[18px] py-4 transition-colors hover:bg-[#1D1D21]">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[15px] font-medium text-[#ECECEE]" dir="auto">
+                    {block.name}
+                  </span>
+                  <span className="rounded-full bg-[rgba(139,92,246,.16)] px-[11px] py-1 text-[13px] text-[#B59AF8]">
+                    <Trans>group</Trans>
+                  </span>
+                </div>
+                <div className="mt-2 text-[14.5px] text-[#A8A8AD]">
+                  <Trans>{block.memberCount} members · Ready when you are</Trans>
+                </div>
+              </BuiCard>
             </button>
           );
         }

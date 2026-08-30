@@ -108,3 +108,132 @@ describe("archiveGroup", () => {
     expect(groupUpdate).not.toHaveBeenCalled();
   });
 });
+
+describe("bot-created group persistence", () => {
+  const actor = {
+    workspaceId: "workspace-1",
+    userId: "user-1",
+    email: "user@example.com",
+    isDeploymentOwner: true,
+  };
+
+  function groupRecord() {
+    return {
+      id: "group-1",
+      workspaceId: actor.workspaceId,
+      userId: actor.userId,
+      name: "Project team",
+      pinned: false,
+      sectionId: null,
+      archivedAt: null,
+      creatorBotId: "bot-1",
+      creatorContext: "Private notes",
+      createKey: "effect-1",
+      createdAt: new Date("2026-08-30T00:00:00Z"),
+      updatedAt: new Date("2026-08-30T00:00:00Z"),
+      thread: {
+        id: "thread-1",
+        unread: false,
+        messages: [
+          {
+            blocks: [
+              {
+                kind: "group_context",
+                creatorBotId: "bot-1",
+                creatorBotName: "Coordinator",
+                text: "Shared requirements",
+              },
+            ],
+          },
+        ],
+      },
+      members: ["bot-1", "bot-2"].map((id) => ({
+        bot: { id, name: id, color: "#111111", runs: [] },
+      })),
+    };
+  }
+
+  it("creates the group, members, thread, and shared message in one transaction", async () => {
+    const record = groupRecord();
+    const tx = {
+      bot: {
+        findMany: vi.fn(async () =>
+          record.members.map((member) => ({
+            id: member.bot.id,
+            name: member.bot.name,
+            color: member.bot.color,
+          })),
+        ),
+      },
+      chatGroup: {
+        findFirst: vi.fn(async () => null),
+        create: vi.fn(async () => ({ id: record.id })),
+        findFirstOrThrow: vi.fn(async () => record),
+      },
+      chatGroupMember: { createMany: vi.fn(async () => ({ count: 2 })) },
+      thread: {
+        create: vi.fn(async () => ({ id: "thread-1" })),
+        update: vi.fn(async () => ({ nextMessageSeq: 1 })),
+      },
+      message: { create: vi.fn(async () => ({ id: "message-1" })) },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    } as unknown as PrismaClient;
+
+    const created = await createGroupRepos(prisma).createGroup(actor, {
+      name: "Project team",
+      botIds: ["bot-1", "bot-2"],
+      creatorBotId: "bot-1",
+      creatorContext: "Private notes",
+      createKey: "effect-1",
+      initialContext: record.thread.messages[0]!.blocks[0] as never,
+    });
+
+    expect(created.id).toBe("group-1");
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.chatGroup.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        creatorBotId: "bot-1",
+        creatorContext: "Private notes",
+        createKey: "effect-1",
+      }),
+    });
+    expect(tx.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          threadId: "thread-1",
+          role: "user",
+          blocks: record.thread.messages[0]!.blocks,
+        }),
+      }),
+    );
+    expect(tx).not.toHaveProperty("task");
+    expect(tx).not.toHaveProperty("run");
+  });
+
+  it("returns the original group for the same create key", async () => {
+    const record = groupRecord();
+    const tx = {
+      chatGroup: {
+        findFirst: vi.fn(async () => record),
+        create: vi.fn(),
+      },
+      bot: { findMany: vi.fn() },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    } as unknown as PrismaClient;
+
+    await expect(
+      createGroupRepos(prisma).createGroup(actor, {
+        name: "Project team",
+        botIds: ["bot-1", "bot-2"],
+        creatorBotId: "bot-1",
+        createKey: "effect-1",
+      }),
+    ).resolves.toMatchObject({ id: "group-1" });
+    expect(tx.chatGroup.create).not.toHaveBeenCalled();
+    expect(tx.bot.findMany).not.toHaveBeenCalled();
+  });
+});

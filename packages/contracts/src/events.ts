@@ -49,6 +49,7 @@ export const BotMessageIntent = z.enum(["request", "result", "question", "status
 export type BotMessageIntent = z.infer<typeof BotMessageIntent>;
 
 export const MAX_CHART_DATA_ROWS = 5_000;
+export const GROUP_CONTEXT_MAX_LENGTH = 8_000;
 
 const ChartSpec = z.record(z.string(), z.any());
 
@@ -82,6 +83,18 @@ const ChartBlock = z
 
 export const MessageBlock = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text"), text: z.string() }),
+  z.object({
+    kind: z.literal("group_context"),
+    creatorBotId: Id,
+    creatorBotName: z.string(),
+    text: z.string().max(GROUP_CONTEXT_MAX_LENGTH),
+  }),
+  z.object({
+    kind: z.literal("child_group"),
+    groupId: Id,
+    name: z.string(),
+    memberCount: z.number().int().min(2).max(6),
+  }),
   z.object({
     kind: z.literal("card"),
     lines: z.array(z.object({ k: z.string(), v: z.string() })),

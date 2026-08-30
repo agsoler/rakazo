@@ -1,26 +1,30 @@
 import { GROUP_MEMBER_MAX, GROUP_MEMBER_MIN } from "@rakazo/contracts";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, TextInput } from "react-native";
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { BotAvatar } from "../components/bot-avatar";
-import { type MobileBot, type MobileGroup, rpc } from "../lib/api";
+import {
+  type MobileBot,
+  type MobileGroupDetail,
+  mobileGroupContextPresentation,
+  rpc,
+} from "../lib/api";
 
 export default function GroupSettingsScreen() {
   const router = useRouter();
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
-  const [group, setGroup] = useState<MobileGroup | null>(null);
+  const [group, setGroup] = useState<MobileGroupDetail | null>(null);
   const [bots, setBots] = useState<MobileBot[]>([]);
   const [name, setName] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const context = group ? mobileGroupContextPresentation(group) : null;
 
   useEffect(() => {
     if (!groupId) return;
     void Promise.all([
-      rpc<MobileGroup[]>("groups/list").then(
-        (groups) => groups.find((row) => row.id === groupId) ?? null,
-      ),
+      rpc<MobileGroupDetail>("groups/get", { groupId }),
       rpc<MobileBot[]>("bots/list"),
     ])
       .then(([nextGroup, nextBots]) => {
@@ -118,6 +122,23 @@ export default function GroupSettingsScreen() {
             </Pressable>
           );
         })}
+        {group && context && (group.creatorBotId || group.sharedContext || group.creatorContext) ? (
+          <View
+            style={{
+              marginTop: 20,
+              borderWidth: 1,
+              borderColor: "#26262A",
+              borderRadius: 14,
+              backgroundColor: "#121214",
+              padding: 16,
+              gap: 16,
+            }}
+          >
+            <ReadOnlyContext label="Created by" text={context.creatorName} />
+            <ReadOnlyContext label="Shared starting context" text={context.sharedContext} />
+            <ReadOnlyContext label="Creator-only starting context" text={context.creatorContext} />
+          </View>
+        ) : null}
         {error ? <Text style={{ color: "#FF6B6B", marginTop: 12 }}>{error}</Text> : null}
         <Pressable
           onPress={() => void save()}
@@ -161,5 +182,27 @@ export default function GroupSettingsScreen() {
         </Pressable>
       </ScrollView>
     </>
+  );
+}
+
+function ReadOnlyContext({ label, text }: { label: string; text: string }) {
+  return (
+    <View>
+      <Text style={{ color: "#85858A", fontSize: 14 }}>{label}</Text>
+      <Text
+        selectable
+        style={{
+          marginTop: 6,
+          color: "#C9C9CE",
+          backgroundColor: "#1A1A1D",
+          borderRadius: 10,
+          padding: 12,
+          fontSize: 14,
+          lineHeight: 21,
+        }}
+      >
+        {text}
+      </Text>
+    </View>
   );
 }

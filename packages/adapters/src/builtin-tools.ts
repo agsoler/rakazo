@@ -1,8 +1,14 @@
 import type { ConnectorTool } from "@rakazo/adapter-kit";
+import {
+  GROUP_CONTEXT_MAX_LENGTH,
+  GROUP_MEMBER_MAX,
+  GROUP_NAME_MAX_LENGTH,
+} from "@rakazo/contracts";
 
 export const DELEGATION_TOOL_NAMES = new Set([
   "run_subagent",
   "spawn_bot",
+  "create_group",
   "archive_bot",
   "delete_bot",
   "handoff_to_bot",
@@ -501,6 +507,38 @@ export const builtinAgentTools: ConnectorTool[] = [
         },
       },
       required: ["name"],
+    },
+  },
+  {
+    name: "create_group",
+    description:
+      "Create a lasting group with this bot and 1–5 other active bots. Optionally provide shared starting context for every member and creator-only starting context for this bot. Creation does not start work or wake any member; the user opens the group and starts it explicitly.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: GROUP_NAME_MAX_LENGTH },
+        member_bot_ids: {
+          type: "array",
+          minItems: 1,
+          maxItems: GROUP_MEMBER_MAX - 1,
+          uniqueItems: true,
+          items: { type: "string" },
+          description:
+            "IDs of the other bots to add. Do not include this bot; it joins automatically.",
+        },
+        shared_context: {
+          type: "string",
+          maxLength: GROUP_CONTEXT_MAX_LENGTH,
+          description: "Optional starting context visible to every group member.",
+        },
+        creator_context: {
+          type: "string",
+          maxLength: GROUP_CONTEXT_MAX_LENGTH,
+          description:
+            "Optional starting context supplied only to this creating bot. The authenticated owner can inspect it in group settings.",
+        },
+      },
+      required: ["name", "member_bot_ids"],
     },
   },
   {
