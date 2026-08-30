@@ -148,12 +148,14 @@ export function GroupSettings({
   group,
   detail,
   bots,
+  onClose,
   onSave,
   onRemove,
 }: {
   group: Group;
   detail: GroupDetail | null;
   bots: Bot[];
+  onClose: () => void;
   onSave: (input: { name?: string; botIds?: string[] }) => Promise<void>;
   onRemove: () => Promise<void>;
 }) {
@@ -206,6 +208,9 @@ export function GroupSettings({
         <span className="text-[13.5px] text-[#85858A]">
           <Trans>Group settings</Trans>
         </span>
+        <button type="button" aria-label={t`Close group settings`} onClick={onClose}>
+          ✕
+        </button>
       </div>
       {error ? (
         <p role="alert" className="mb-3 text-[13px] text-[#C94244]">

@@ -3051,6 +3051,7 @@ export function ShellPage() {
                 group={activeGroup}
                 detail={groupDetail}
                 bots={bots}
+                onClose={() => setPanel(null)}
                 onSave={async (input) => {
                   const updated = await rpc.groups.update({ groupId: activeGroup.id, ...input });
                   setGroups((current) =>

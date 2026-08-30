@@ -137,6 +137,9 @@ test("bot-created contextual group card opens the group and owner-visible settin
 
   await expect(settingsScroll).toHaveAttribute("data-context-unmounted", "false");
   expect(groupDetailRefetches).toBeGreaterThan(0);
+
+  await settings.getByRole("button", { name: "Close group settings" }).click();
+  await expect(settings).toHaveAttribute("data-panel", "closed");
 });
 
 test("create group from + and see two bots in one transcript", async ({ page }, testInfo) => {
