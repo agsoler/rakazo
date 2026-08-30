@@ -138,7 +138,12 @@ test("bot-created contextual group card opens the group and owner-visible settin
   await expect(settingsScroll).toHaveAttribute("data-context-unmounted", "false");
   expect(groupDetailRefetches).toBeGreaterThan(0);
 
-  await settings.getByRole("button", { name: "Close group settings" }).click();
+  const closeSettings = settings.getByRole("button", { name: "Close group settings" });
+  await expect(closeSettings).toHaveCSS("cursor", "pointer");
+  await closeSettings.hover();
+  await expect(closeSettings).toHaveCSS("color", "rgb(236, 236, 238)");
+  await expect(closeSettings).toHaveCSS("background-color", "rgb(26, 26, 29)");
+  await closeSettings.click();
   await expect(settings).toHaveAttribute("data-panel", "closed");
 });
 

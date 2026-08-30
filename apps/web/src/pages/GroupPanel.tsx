@@ -208,7 +208,12 @@ export function GroupSettings({
         <span className="text-[13.5px] text-[#85858A]">
           <Trans>Group settings</Trans>
         </span>
-        <button type="button" aria-label={t`Close group settings`} onClick={onClose}>
+        <button
+          type="button"
+          aria-label={t`Close group settings`}
+          onClick={onClose}
+          className="cursor-pointer rounded-md p-1 text-[#85858A] transition-colors hover:bg-[#1A1A1D] hover:text-[#ECECEE] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8B5CF6]"
+        >
           ✕
         </button>
       </div>
