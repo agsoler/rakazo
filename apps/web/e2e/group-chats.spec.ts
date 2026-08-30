@@ -20,6 +20,46 @@ async function createBot(page: import("@playwright/test").Page, name: string) {
   return activeBotId(page);
 }
 
+test("two-bot member picker does not flicker its scrollbar", async ({ page }) => {
+  const stamp = Date.now();
+  await signup(page, `group-scroll-${stamp}@rakazo.test`, "password12", "Group Scroll E2E");
+  await completeOnboarding(page);
+  await page.goto("/app");
+  await page.waitForURL(/\/app\/[^/]+$/);
+
+  const firstBotId = await activeBotId(page);
+  const secondBotId = await createBot(page, "Second member");
+  const group = await rpc<{ id: string }>(page, "groups/create", {
+    name: "Stable member picker",
+    botIds: [firstBotId, secondBotId],
+  });
+
+  await page.goto(`/app/g/${group.id}`);
+  await page.getByTestId("bot-settings-trigger").click();
+  const settings = page.getByTestId("side-panel");
+  const memberPicker = settings.locator("div.mt-2.max-h-\\[240px\\].overflow-y-auto");
+  await expect(memberPicker).toBeVisible();
+
+  const states = await memberPicker.evaluate(async (element) => {
+    const observed: Array<{ clientWidth: number; overflow: boolean }> = [];
+    let previous = "";
+    for (let sample = 0; sample < 150; sample++) {
+      const state = {
+        clientWidth: element.clientWidth,
+        overflow: element.scrollHeight > element.clientHeight,
+      };
+      const key = JSON.stringify(state);
+      if (key !== previous) observed.push(state);
+      previous = key;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return observed;
+  });
+
+  expect(states).toHaveLength(1);
+  expect(states[0]).toMatchObject({ overflow: false });
+});
+
 test("create group from + and see two bots in one transcript", async ({ page }, testInfo) => {
   const stamp = Date.now();
   await signup(page, `group-${stamp}@rakazo.test`, "password12", "Group E2E");
@@ -106,7 +146,10 @@ test("create group from + and see two bots in one transcript", async ({ page }, 
   await expect(groupAvatar.locator(".rakazo-bot-avatar")).toHaveCount(2);
   const workingAvatar = groupAvatar.locator('[data-working="true"]');
   await expect(workingAvatar).toHaveCount(1);
-  await expect(workingAvatar.locator("svg")).toHaveCSS("animation-name", "rakazo-avatar-spin");
+  await expect(workingAvatar.locator(".rakazo-bot-avatar-ring")).toHaveCSS(
+    "animation-name",
+    "rakazo-avatar-spin",
+  );
   await captureScreenshot(page, testInfo, "group-avatar-active");
   await page.unroute("**/rpc/groups/list");
   await page.unroute("**/rpc/threads/get");

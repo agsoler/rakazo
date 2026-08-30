@@ -39,6 +39,13 @@ describe("BotAvatar", () => {
     expect(html).toContain("rakazo-bot-avatar-ring");
   });
 
+  it("rotates ring artwork inside the fixed SVG viewport", () => {
+    const html = renderToString(<BotAvatar color="#F59E0B" status="running" />);
+
+    expect(html).toContain('<g class="rakazo-bot-avatar-ring">');
+    expect(html).not.toMatch(/<svg[^>]*class="[^"]*rakazo-bot-avatar-ring/);
+  });
+
   it("generates an organic avatar from the bot color", () => {
     const html = renderToString(
       <BotAvatar color="#D9508A" identity="maya" size={28} status="running" variant="organic" />,
