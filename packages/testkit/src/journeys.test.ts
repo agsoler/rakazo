@@ -1776,15 +1776,19 @@ describeJourneys("required product journeys", () => {
       ]),
       thread: archiveThread,
     });
-    const groupsWhileUndersized = await rpc<Array<{ id: string }>>(app, ada, "groups/list");
-    expect(groupsWhileUndersized.some((row) => row.id === archiveGroup.id)).toBe(false);
-    await expect(rpc(app, ada, "threads/get", { groupId: archiveGroup.id })).rejects.toThrow();
-    await expect(
-      rpc(app, ada, "threads/send", {
-        groupId: archiveGroup.id,
-        text: "This hidden group must not run with one active member",
-      }),
-    ).rejects.toThrow();
+    const groupsWithOneActiveMember = await rpc<
+      Array<{ id: string; members: Array<{ botId: string }> }>
+    >(app, ada, "groups/list");
+    expect(groupsWithOneActiveMember.find((row) => row.id === archiveGroup.id)?.members).toEqual([
+      expect.objectContaining({ botId: archivePartner.id }),
+    ]);
+    await expect(rpc(app, ada, "threads/get", { groupId: archiveGroup.id })).resolves.toBeDefined();
+    await sendGroupAndWait(
+      app,
+      ada,
+      archiveGroup.id,
+      "Continue this focused conversation with one active member.",
+    );
     await rpc(app, ada, "bots/restore", { botId: archiveMember.id });
     const restoredArchiveGroup = await rpc<
       Array<{ id: string; members: Array<{ botId: string }> }>
@@ -1829,10 +1833,20 @@ describeJourneys("required product journeys", () => {
       },
     });
     await rpc(app, ada, "bots/remove", { botId: archiveThird.id, deleteMemories: true });
-    expect(await prisma.chatGroup.findUnique({ where: { id: archiveGroup.id } })).toBeNull();
-    expect(await prisma.run.findUnique({ where: { id: dissolvingRun.id } })).toBeNull();
+    expect(await prisma.chatGroup.findUnique({ where: { id: archiveGroup.id } })).not.toBeNull();
+    expect(await prisma.run.findUnique({ where: { id: dissolvingRun.id } })).toMatchObject({
+      status: "running",
+    });
+    await prisma.run.update({
+      where: { id: dissolvingRun.id },
+      data: { status: "cancelled", completedAt: new Date() },
+    });
+    await prisma.task.update({
+      where: { id: dissolvingTask.id },
+      data: { status: "cancelled" },
+    });
     await rpc(app, ada, "bots/restore", { botId: archiveMember.id });
-    expect(await prisma.chatGroup.findUnique({ where: { id: archiveGroup.id } })).toBeNull();
+    expect(await prisma.chatGroup.findUnique({ where: { id: archiveGroup.id } })).not.toBeNull();
 
     const deletionPartner = await rpc<Bot>(app, ada, "bots/create", {
       name: "Deletion Partner",
@@ -1848,18 +1862,15 @@ describeJourneys("required product journeys", () => {
     await expect(prisma.bot.delete({ where: { id: botB.id } })).rejects.toThrow();
     expect(await prisma.chatGroup.findUnique({ where: { id: deletionGroup.id } })).not.toBeNull();
     await rpc(app, ada, "bots/remove", { botId: botB.id, deleteMemories: true });
+    expect(await prisma.chatGroup.findUnique({ where: { id: deletionGroup.id } })).not.toBeNull();
+    await rpc(app, ada, "bots/remove", { botId: deletionPartner.id, deleteMemories: true });
     expect(await prisma.chatGroup.findUnique({ where: { id: deletionGroup.id } })).toBeNull();
 
     await rpc(app, ada, "groups/remove", { groupId: group.id });
     expect(await prisma.artifact.findUnique({ where: { id: artifact.id } })).toBeNull();
     const remainingBotIds = (await rpc<Bot[]>(app, ada, "bots/list")).map((bot) => bot.id);
     expect(remainingBotIds).toEqual(
-      expect.arrayContaining([
-        ...remainingGroupBotIds,
-        deletionPartner.id,
-        archiveMember.id,
-        archivePartner.id,
-      ]),
+      expect.arrayContaining([...remainingGroupBotIds, archiveMember.id, archivePartner.id]),
     );
     expect(remainingBotIds).not.toContain(artifactOwnerId);
   });
@@ -2372,6 +2383,67 @@ describeJourneys("required product journeys", () => {
     expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBe(0);
     await sendGroupAndWait(app, cookie, group!.id, "GM, set the scene and start the game.");
     expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBeGreaterThan(0);
+  });
+
+  it("26: a bot creates a focused conversation without another bot", async () => {
+    const cookie = await signup(app, `focused-group-j-${stamp}@rakazo.test`, "Focused Group");
+    const coordinator = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Coordinator",
+      title: "Keeps topics organised",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const shared = "Keep this release discussion separate from the main conversation.";
+    const privateNotes = "Track unresolved review concerns privately.";
+    await sendAndWait(
+      app,
+      cookie,
+      coordinator.id,
+      `create a group named Release focus; shared context [${shared}] creator context [${privateNotes}]`,
+    );
+
+    const group = (
+      await rpc<Array<{ id: string; name: string; members: Array<{ botId: string }> }>>(
+        app,
+        cookie,
+        "groups/list",
+      )
+    ).find((row) => row.name === "Release focus");
+    expect(group?.members).toEqual([expect.objectContaining({ botId: coordinator.id })]);
+
+    const detail = await rpc<{
+      threadId: string;
+      creatorBotId: string | null;
+      sharedContext: string | null;
+      creatorContext: string | null;
+      messages: Array<{ blocks: unknown }>;
+    }>(app, cookie, "groups/get", { groupId: group!.id });
+    expect(detail).toMatchObject({
+      creatorBotId: coordinator.id,
+      sharedContext: shared,
+      creatorContext: privateNotes,
+    });
+    expect(JSON.stringify(detail.messages)).toContain(shared);
+    expect(JSON.stringify(detail.messages)).not.toContain(privateNotes);
+    expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBe(0);
+    expect(await prisma.task.count({ where: { threadId: detail.threadId } })).toBe(0);
+
+    const parent = await rpc<Snap>(app, cookie, "threads/get", { botId: coordinator.id });
+    expect(
+      parent.messages
+        .flatMap((message) => message.blocks)
+        .find((block) => block.kind === "child_group"),
+    ).toMatchObject({ name: "Release focus", memberCount: 1 });
+
+    await sendGroupAndWait(app, cookie, group!.id, "Start this focused discussion.");
+    expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBe(1);
+    expect(
+      await prisma.run.findFirstOrThrow({
+        where: { threadId: detail.threadId },
+        select: { botId: true },
+      }),
+    ).toEqual({ botId: coordinator.id });
   });
 });
 

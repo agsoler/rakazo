@@ -511,20 +511,18 @@ export const builtinAgentTools: ConnectorTool[] = [
   },
   {
     name: "create_group",
-    description:
-      "Create a lasting group with this bot and 1–5 other active bots. Optionally provide shared starting context for every member and creator-only starting context for this bot. Creation does not start work or wake any member; the user opens the group and starts it explicitly.",
+    description: `Create a lasting focused conversation with this bot and up to ${GROUP_MEMBER_MAX - 1} other active bots. Optionally provide shared starting context for every member and creator-only starting context for this bot. Creation does not start work or wake any member; the user opens the group and starts it explicitly.`,
     inputSchema: {
       type: "object",
       properties: {
         name: { type: "string", minLength: 1, maxLength: GROUP_NAME_MAX_LENGTH },
         member_bot_ids: {
           type: "array",
-          minItems: 1,
           maxItems: GROUP_MEMBER_MAX - 1,
           uniqueItems: true,
           items: { type: "string" },
           description:
-            "IDs of the other bots to add. Do not include this bot; it joins automatically.",
+            "Optional IDs of other bots to add. Omit this field or use an empty list for a focused conversation with only this bot. Do not include this bot; it joins automatically.",
         },
         shared_context: {
           type: "string",
@@ -538,7 +536,7 @@ export const builtinAgentTools: ConnectorTool[] = [
             "Optional starting context supplied only to this creating bot. The authenticated owner can inspect it in group settings.",
         },
       },
-      required: ["name", "member_bot_ids"],
+      required: ["name"],
     },
   },
   {

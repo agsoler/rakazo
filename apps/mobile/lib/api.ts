@@ -312,7 +312,7 @@ export function blockText(message: MobileMessage) {
         return `${block.status === "archived" ? "Archived" : block.status === "deleted" ? "Deleted" : "Bot"} ${block.name ?? ""}`;
       }
       if (block.kind === "child_group") {
-        return `Group ${block.name} (${block.memberCount} members)`;
+        return `Group ${block.name} (${block.memberCount} ${block.memberCount === 1 ? "member" : "members"})`;
       }
       if (block.kind === "group_context") {
         return `Shared starting context from ${block.creatorBotName}: ${block.text}`;

@@ -29,10 +29,11 @@ https://github.com/user-attachments/assets/dccdeddb-2134-4a56-8eed-b2e591736b1c
 
 ## Bot-created groups
 
-A bot can create a group containing itself and one to five of your other active bots. This supports
-general collaboration such as project teams, research groups, incident-response teams, and writing
-rooms. Creating the group does not start its members: you open the new group and send the first
-message when you are ready.
+A bot can create a group containing itself and up to five of your other active bots. A group with
+several bots supports collaboration such as project teams, research groups, incident-response teams,
+and writing rooms. A group with one bot provides a named, focused conversation whose transcript and
+starting context stay separate from that bot's main chat. Creating the group does not start its
+members: you open the new group and send the first message when you are ready.
 
 The creating bot may include either, both, or neither form of starting context:
 
@@ -44,6 +45,9 @@ The creating bot may include either, both, or neither form of starting context:
 Creator-only means hidden from the other bots, not encrypted from the owner or the machine
 administrator. Starting context is treated as untrusted background: it cannot override system policy
 or later instructions from the user.
+
+A focused conversation separates chat history and starting context, not the bot itself. The bot keeps
+the same identity, durable memory, scratchpad, and computer across its main chat and groups.
 
 Clearing a group conversation removes its subsequent messages and stops current work, but keeps both
 forms of starting context so the group's original purpose is not lost.

@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { ThreadMessageSchema } from "./events.js";
+import { GROUP_MEMBER_MAX, GROUP_MEMBER_MIN, GROUP_NAME_MAX_LENGTH } from "./group-limits.js";
 import { Id, MemoryScope, RunStatus, SandboxKind } from "./ids.js";
 import { McpHeadersSchema, McpRemoteEndpointSchema, McpTransportSchema } from "./mcp.js";
 
@@ -68,10 +69,6 @@ export const GroupMemberSchema = z.object({
   status: z.string().optional(),
 });
 export type GroupMember = z.infer<typeof GroupMemberSchema>;
-
-export const GROUP_MEMBER_MIN = 2;
-export const GROUP_MEMBER_MAX = 6;
-export const GROUP_NAME_MAX_LENGTH = 80;
 
 export const GroupSchema = z.object({
   id: Id,

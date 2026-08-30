@@ -2031,7 +2031,7 @@ const MessageBubble = memo(function MessageBubble({
           <Text style={{ color: "#B59AF8", fontSize: 13 }}>group</Text>
         </View>
         <Text style={{ color: "#A8A8AD", marginTop: 8, fontSize: 14.5 }}>
-          {special.memberCount} members · Ready when you are
+          {`${special.memberCount} ${special.memberCount === 1 ? "member" : "members"} · Ready when you are`}
         </Text>
       </Pressable>
     );

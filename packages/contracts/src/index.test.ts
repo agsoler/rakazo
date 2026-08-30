@@ -68,6 +68,11 @@ describe("contracts", () => {
   });
 
   it("normalizes group names and rejects duplicate members", () => {
+    expect(CreateGroupInput.parse({ name: "  Focus room  ", botIds: ["bot-1"] })).toEqual({
+      name: "Focus room",
+      botIds: ["bot-1"],
+    });
+    expect(CreateGroupInput.safeParse({ name: "Empty room", botIds: [] }).success).toBe(false);
     expect(CreateGroupInput.parse({ name: "  Draft team  ", botIds: ["bot-1", "bot-2"] })).toEqual({
       name: "Draft team",
       botIds: ["bot-1", "bot-2"],
@@ -93,8 +98,8 @@ describe("contracts", () => {
       MessageBlock.parse({
         kind: "child_group",
         groupId: "group-1",
-        name: "Project team",
-        memberCount: 2,
+        name: "Focus room",
+        memberCount: 1,
       }),
     ).toMatchObject({ kind: "child_group", groupId: "group-1" });
     expect(

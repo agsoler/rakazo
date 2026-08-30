@@ -15,7 +15,7 @@ export interface CreateAgentGroupInput {
   };
   createKey: string;
   name: string;
-  memberBotIds: unknown;
+  memberBotIds?: unknown;
   sharedContext?: string;
   creatorContext?: string;
 }
@@ -44,17 +44,18 @@ export async function createAgentGroup(prisma: PrismaClient, input: CreateAgentG
   if (name.length > GROUP_NAME_MAX_LENGTH) {
     return { error: `Group name must be ${GROUP_NAME_MAX_LENGTH} characters or fewer.` };
   }
-  if (!Array.isArray(input.memberBotIds)) {
+  const rawMemberBotIds = input.memberBotIds ?? [];
+  if (!Array.isArray(rawMemberBotIds)) {
     return { error: "member_bot_ids must be a list of bot IDs." };
   }
-  const memberBotIds = input.memberBotIds.map((value) =>
+  const memberBotIds = rawMemberBotIds.map((value) =>
     typeof value === "string" ? value.trim() : "",
   );
   if (memberBotIds.some((id) => !id)) {
     return { error: "Every member_bot_ids entry must be a bot ID." };
   }
-  if (memberBotIds.length < 1 || memberBotIds.length > GROUP_MEMBER_MAX - 1) {
-    return { error: `Choose between 1 and ${GROUP_MEMBER_MAX - 1} other bots.` };
+  if (memberBotIds.length > GROUP_MEMBER_MAX - 1) {
+    return { error: `Choose up to ${GROUP_MEMBER_MAX - 1} other bots.` };
   }
   if (new Set(memberBotIds).size !== memberBotIds.length) {
     return { error: "member_bot_ids must contain distinct bot IDs." };

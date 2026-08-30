@@ -15,15 +15,16 @@ export const SCHEDULE_TOOL_NAMES = new Set(["schedule_create", "schedule_list", 
 
 export function filterBuiltinToolsForThread<T extends { name: string }>(
   tools: T[],
-  groupId: string | null | undefined,
+  groupMemberCount: number | null | undefined,
 ): T[] {
+  const isGroup = groupMemberCount !== null && groupMemberCount !== undefined;
   return tools.filter(
     (tool) =>
-      (groupId || tool.name !== "handoff_to_bot") &&
+      ((groupMemberCount ?? 0) > 1 || tool.name !== "handoff_to_bot") &&
       // In a group the room is the shared surface: hand the stage to a member
       // rather than starting a private thread off to one side.
-      (!groupId || tool.name !== "message_bot") &&
-      (!groupId || !SCHEDULE_TOOL_NAMES.has(tool.name)),
+      (!isGroup || tool.name !== "message_bot") &&
+      (!isGroup || !SCHEDULE_TOOL_NAMES.has(tool.name)),
   );
 }
 

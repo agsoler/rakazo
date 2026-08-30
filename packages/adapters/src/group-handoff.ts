@@ -195,7 +195,7 @@ export async function loadGroupContext(
   prisma: PrismaClient,
   groupId: string,
   self: { id: string; name: string },
-): Promise<string | undefined> {
+): Promise<{ instructions: string; memberCount: number } | undefined> {
   const group = await prisma.chatGroup.findUnique({
     where: { id: groupId },
     include: {
@@ -216,5 +216,8 @@ export async function loadGroupContext(
   );
   const creatorContext =
     group.creatorBotId === self.id ? renderGroupCreatorContext(group.creatorContext) : undefined;
-  return [members, creatorContext].filter(Boolean).join("\n\n");
+  return {
+    instructions: [members, creatorContext].filter(Boolean).join("\n\n"),
+    memberCount: group.members.length,
+  };
 }

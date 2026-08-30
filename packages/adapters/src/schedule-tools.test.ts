@@ -95,7 +95,7 @@ describe("filterBuiltinToolsForThread", () => {
   ];
 
   it("keeps handoff only in groups and hides schedule tools outside 1:1", () => {
-    expect(filterBuiltinToolsForThread(tools, "group-1").map((tool) => tool.name)).toEqual([
+    expect(filterBuiltinToolsForThread(tools, 2).map((tool) => tool.name)).toEqual([
       "handoff_to_bot",
       "remember",
     ]);
@@ -106,9 +106,13 @@ describe("filterBuiltinToolsForThread", () => {
     ]);
   });
 
+  it("hides handoff in a focused group with no other bot", () => {
+    expect(filterBuiltinToolsForThread(tools, 1).map((tool) => tool.name)).toEqual(["remember"]);
+  });
+
   it("covers every schedule tool name", () => {
     for (const name of SCHEDULE_TOOL_NAMES) {
-      expect(filterBuiltinToolsForThread([{ name }, { name: "remember" }], "group-1")).toEqual([
+      expect(filterBuiltinToolsForThread([{ name }, { name: "remember" }], 2)).toEqual([
         { name: "remember" },
       ]);
     }

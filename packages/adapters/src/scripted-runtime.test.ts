@@ -35,4 +35,33 @@ describe("ScriptedAgentRuntime executionIds", () => {
       .map((event) => event.executionId);
     expect(toolIds).toEqual(["run-1:message_agent:0", "run-1:message_agent:1"]);
   });
+
+  it("creates a focused group without requiring other bot ids", async () => {
+    const runtime = new ScriptedAgentRuntime();
+    const events: AgentRuntimeEvent[] = [];
+    for await (const event of runtime.run({
+      botId: "bot-1",
+      threadId: "thread-1",
+      runId: "run-1",
+      prompt:
+        "create a group named Focus room; shared context [Keep this topic separate.] creator context [Private notes.]",
+      instructions: "",
+      history: [],
+      tools: [],
+      model: { provider: "scripted", id: "scripted" },
+    })) {
+      events.push(event);
+    }
+
+    expect(events.find((event) => event.type === "tool")).toMatchObject({
+      type: "tool",
+      name: "create_group",
+      args: {
+        name: "Focus room",
+        member_bot_ids: [],
+        shared_context: "Keep this topic separate.",
+        creator_context: "Private notes.",
+      },
+    });
+  });
 });

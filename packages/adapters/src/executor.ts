@@ -961,7 +961,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
         const acceptsImages =
           deps.runtime.describe().capabilities.scripted ||
           modelAcceptsImageInput(runModelProvider, runModelId);
-        const groupContext = thread.groupId
+        const groupRunContext = thread.groupId
           ? await loadGroupContext(deps.prisma, thread.groupId, { id: bot.id, name: bot.name })
           : undefined;
         // Phone runs are rare; the source lookup only happens for them.
@@ -984,7 +984,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
         const graphicalToolsAllowed = graphical && acceptsImages;
         const availableBuiltins = filterBuiltinToolsForThread(
           filterImageReturningComputerTools(builtinAgentTools, graphicalToolsAllowed),
-          thread.groupId,
+          thread.groupId ? (groupRunContext?.memberCount ?? 0) : null,
         );
         const builtins = [
           ...selectMemoryTools(availableBuiltins, semanticMemoryEnabled),
@@ -2478,7 +2478,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
               prompt,
               instructions: [
                 bot.instructions || `${bot.name}: ${bot.title}\n${bot.description}`,
-                groupContext,
+                groupRunContext?.instructions,
                 phoneContext,
                 memoryContext ? redactSecrets(memoryContext, runSecrets) : undefined,
                 scratchpadContext ? redactSecrets(scratchpadContext, runSecrets) : undefined,
