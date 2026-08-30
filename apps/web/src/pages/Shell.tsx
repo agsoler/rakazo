@@ -477,7 +477,7 @@ export function ShellPage() {
       return;
     }
     let current = true;
-    setGroupDetail(null);
+    setGroupDetail((detail) => (detail?.id === activeGroup.id ? detail : null));
     void rpc.groups
       .get({ groupId: activeGroup.id })
       .then((detail) => {

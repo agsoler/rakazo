@@ -101,6 +101,42 @@ test("bot-created contextual group card opens the group and owner-visible settin
   await expect(
     settings.getByText("Coordinate the final review privately.", { exact: true }),
   ).toBeVisible();
+
+  let groupListRefreshes = 0;
+  let groupDetailRefetches = 0;
+  await page.route("**/rpc/groups/list", async (route) => {
+    groupListRefreshes += 1;
+    await route.continue();
+  });
+  await page.route("**/rpc/groups/get", async (route) => {
+    groupDetailRefetches += 1;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.continue();
+  });
+
+  const settingsScroll = settings.locator(".rk-scroll");
+  await settingsScroll.evaluate((element) => {
+    element.setAttribute("data-context-unmounted", "false");
+    const observer = new MutationObserver(() => {
+      if (!element.textContent?.includes("Created by")) {
+        element.setAttribute("data-context-unmounted", "true");
+      }
+    });
+    observer.observe(element, { childList: true, subtree: true });
+  });
+
+  await rpc(page, "bots/create", {
+    name: "Refresh trigger",
+    title: "",
+    description: "",
+    instructions: "",
+    notifyOnFinish: false,
+  });
+  await expect.poll(() => groupListRefreshes).toBeGreaterThan(0);
+  await page.waitForTimeout(500);
+
+  await expect(settingsScroll).toHaveAttribute("data-context-unmounted", "false");
+  expect(groupDetailRefetches).toBeGreaterThan(0);
 });
 
 test("create group from + and see two bots in one transcript", async ({ page }, testInfo) => {
