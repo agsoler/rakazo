@@ -222,7 +222,23 @@ export async function clearThread(
         executionLeaseExpiresAt: null,
       },
     });
-    await tx.message.deleteMany({ where: { threadId: input.threadId } });
+    let preservedContextMessageId: string | undefined;
+    if (input.groupId) {
+      const firstMessage = await tx.message.findFirst({
+        where: { threadId: input.threadId },
+        orderBy: { seq: "asc" },
+        select: { id: true, blocks: true },
+      });
+      if (firstMessage && hasGroupContextBlock(firstMessage.blocks)) {
+        preservedContextMessageId = firstMessage.id;
+      }
+    }
+    await tx.message.deleteMany({
+      where: {
+        threadId: input.threadId,
+        ...(preservedContextMessageId ? { id: { not: preservedContextMessageId } } : {}),
+      },
+    });
     await tx.event.deleteMany({ where: { threadId: input.threadId } });
     if (thread.nextMessageSeq > 0) {
       // nextMessageSeq is not reset, so mark every deleted message as already compacted.
@@ -270,6 +286,14 @@ export async function clearThread(
     cancelledRunIds: committed.cancelledRunIds,
     historyCompactionGeneration: committed.historyCompactionGeneration,
   };
+}
+
+function hasGroupContextBlock(blocks: unknown): boolean {
+  if (!Array.isArray(blocks)) return false;
+  return blocks.some((block) => {
+    const parsed = MessageBlockSchema.safeParse(block);
+    return parsed.success && parsed.data.kind === "group_context";
+  });
 }
 
 export async function sendUserMessage(

@@ -1015,7 +1015,7 @@ describe("clearThread", () => {
       task: { updateMany: vi.fn() },
       computerExecutionLease: { deleteMany: vi.fn() },
       computer: { updateMany: vi.fn() },
-      message: { deleteMany: vi.fn() },
+      message: { findFirst: vi.fn(), deleteMany: vi.fn() },
       event: {
         deleteMany: vi.fn(),
         create: vi.fn().mockResolvedValue({
@@ -1082,7 +1082,20 @@ describe("clearThread", () => {
       task: { updateMany: vi.fn() },
       computerExecutionLease: { deleteMany: vi.fn() },
       computer: { updateMany: vi.fn() },
-      message: { deleteMany: vi.fn() },
+      message: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "group-context-message",
+          blocks: [
+            {
+              kind: "group_context",
+              creatorBotId: "bot-1",
+              creatorBotName: "Coordinator",
+              text: "Shared requirements",
+            },
+          ],
+        }),
+        deleteMany: vi.fn(),
+      },
       event: {
         deleteMany: vi.fn(),
         create: vi.fn().mockResolvedValue({
@@ -1131,6 +1144,9 @@ describe("clearThread", () => {
     expect(tx.computerExecutionLease.deleteMany).not.toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ botId: expect.anything() }) }),
     );
+    expect(tx.message.deleteMany).toHaveBeenCalledWith({
+      where: { threadId: "thread-group", id: { not: "group-context-message" } },
+    });
   });
 });
 

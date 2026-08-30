@@ -145,6 +145,32 @@ test("bot-created contextual group card opens the group and owner-visible settin
   await expect(closeSettings).toHaveCSS("background-color", "rgb(26, 26, 29)");
   await closeSettings.click();
   await expect(settings).toHaveAttribute("data-panel", "closed");
+
+  const launchTeam = page
+    .locator("aside")
+    .first()
+    .getByRole("button", { name: /^Launch team/ });
+  await launchTeam.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Clear conversation", exact: true }).click();
+  const clearDialog = page.getByRole("alertdialog", {
+    name: "Clear Launch team’s conversation?",
+  });
+  await expect(clearDialog).toBeVisible();
+  await clearDialog.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(clearDialog).toHaveCount(0);
+  await expect(
+    page.getByTestId("transcript").getByText("Prepare a concise launch brief.", { exact: true }),
+  ).toBeVisible();
+
+  await page.getByTestId("bot-settings-trigger").click();
+  await expect(
+    page.getByTestId("side-panel").getByText("Prepare a concise launch brief.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByTestId("side-panel")
+      .getByText("Coordinate the final review privately.", { exact: true }),
+  ).toBeVisible();
 });
 
 test("create group from + and see two bots in one transcript", async ({ page }, testInfo) => {

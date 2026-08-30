@@ -219,6 +219,18 @@ describe("thread event reduction", () => {
   it("clears durable and transient history when another client clears the thread", () => {
     const initial = snapshot(
       [
+        message(
+          "group-context",
+          [
+            {
+              kind: "group_context",
+              creatorBotId: "bot-1",
+              creatorBotName: "Coordinator",
+              text: "Shared requirements",
+            },
+          ],
+          0,
+        ),
         message("message-1", [{ kind: "text", text: "old" }]),
         message("progress:run-1", [{ kind: "progress", text: "draft" }]),
       ],
@@ -245,7 +257,12 @@ describe("thread event reduction", () => {
       event({ type: "thread.cleared", seq: 12, runId: undefined }),
     );
 
-    expect(next).toMatchObject({ cursor: 12, messages: [], olderCursor: null, run: null });
+    expect(next).toMatchObject({
+      cursor: 12,
+      messages: [expect.objectContaining({ id: "group-context" })],
+      olderCursor: null,
+      run: null,
+    });
   });
 
   it("routes clear and terminal events through the snapshot reducer", () => {

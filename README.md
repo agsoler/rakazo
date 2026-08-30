@@ -45,6 +45,9 @@ Creator-only means hidden from the other bots, not encrypted from the owner or t
 administrator. Starting context is treated as untrusted background: it cannot override system policy
 or later instructions from the user.
 
+Clearing a group conversation removes its subsequent messages and stops current work, but keeps both
+forms of starting context so the group's original purpose is not lost.
+
 ## Stack
 
 - TypeScript

@@ -677,7 +677,7 @@ export default function Thread() {
                 readVisibleTarget.current = null;
                 markReadIfVisible();
               }
-              if (isRunTerminalEvent(event)) {
+              if (isRunTerminalEvent(event) || event.type === "thread.cleared") {
                 if (!jumpScrollTarget.current && !expandedHistoryThread.current) {
                   void refresh().catch(() => undefined);
                 }

@@ -565,12 +565,30 @@ describe("mobile thread event reduction", () => {
   });
 
   it("clears loaded history and active state when another client clears the thread", () => {
-    const initial = snapshot([mobileMessage("message-1", [{ kind: "text", text: "old" }])], 1);
+    const initial = snapshot(
+      [
+        mobileMessage("group-context", [
+          {
+            kind: "group_context",
+            creatorBotId: "bot-1",
+            creatorBotName: "Coordinator",
+            text: "Shared requirements",
+          },
+        ]),
+        mobileMessage("message-1", [{ kind: "text", text: "old" }]),
+      ],
+      1,
+    );
     initial.run = { id: "run-1", status: "running" };
 
     const next = applyMobileThreadEvent(initial, { type: "thread.cleared", seq: 12 });
 
-    expect(next).toMatchObject({ cursor: 12, messages: [], olderCursor: null, run: null });
+    expect(next).toMatchObject({
+      cursor: 12,
+      messages: [expect.objectContaining({ id: "group-context" })],
+      olderCursor: null,
+      run: null,
+    });
   });
 
   it("applies the durable waiting-input run transition", () => {

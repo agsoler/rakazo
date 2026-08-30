@@ -2250,7 +2250,7 @@ describeJourneys("required product journeys", () => {
     expect(afterFire.status).toBeGreaterThanOrEqual(400);
   });
 
-  it("24: a coordinator bot creates a contextual project group without starting it", async () => {
+  it("24: a coordinator bot creates a contextual project group and clearing preserves its context", async () => {
     const cookie = await signup(app, `context-group-j-${stamp}@rakazo.test`, "Context Group");
     const coordinator = await rpc<Bot>(app, cookie, "bots/create", {
       name: "Coordinator",
@@ -2322,6 +2322,19 @@ describeJourneys("required product journeys", () => {
 
     await sendGroupAndWait(app, cookie, group!.id, "Begin by outlining the requirements.");
     expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBeGreaterThan(0);
+
+    await rpc(app, cookie, "threads/clear", { groupId: group!.id });
+    const clearedDetail = await rpc<{
+      sharedContext: string | null;
+      creatorContext: string | null;
+      messages: Array<{ blocks: unknown }>;
+    }>(app, cookie, "groups/get", { groupId: group!.id });
+    expect(clearedDetail.sharedContext).toBe(shared);
+    expect(clearedDetail.creatorContext).toBe(privateNotes);
+    expect(clearedDetail.messages).toHaveLength(1);
+    expect(JSON.stringify(clearedDetail.messages)).toContain(shared);
+    expect(JSON.stringify(clearedDetail.messages)).not.toContain(privateNotes);
+    expect(JSON.stringify(clearedDetail.messages)).not.toContain("Begin by outlining");
   });
 
   it("25: a role-playing group keeps private plot notes from other members and waits for the user", async () => {

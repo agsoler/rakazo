@@ -50,6 +50,7 @@ import {
   mentionChipKey,
   reorderBotTo,
   resolveComposerSendPlan,
+  retainStartingContextMessages,
   SLASH_ACTIONS,
   type SlashActionId,
   searchHitThreadTarget,
@@ -1293,7 +1294,11 @@ export function ShellPage() {
             if (event.type === "run.started" || isRunTerminalEvent(event)) {
               void refreshBots().catch(() => undefined);
             }
-            if (isRunTerminalEvent(event) || event.type === "run.waiting_input") {
+            if (
+              isRunTerminalEvent(event) ||
+              event.type === "run.waiting_input" ||
+              event.type === "thread.cleared"
+            ) {
               // waiting_input: reconcile ask cards if a stale post-send refresh raced SSE.
               void refreshGroupThread(groupId).catch(() => undefined);
             }
@@ -3423,11 +3428,21 @@ export function ShellPage() {
                 pinnedAroundRef.current = null;
                 historyEpoch.current += 1;
                 updateSnapshot((current) =>
-                  current ? { ...current, messages: [], olderCursor: null, run: null } : current,
+                  current
+                    ? {
+                        ...current,
+                        messages: retainStartingContextMessages(current.messages),
+                        olderCursor: null,
+                        run: null,
+                      }
+                    : current,
                 );
               }
               setClearTarget(null);
               await refreshBots();
+              if (clearTarget.kind === "group" && activeGroup?.id === clearTarget.chat.id) {
+                await refreshGroupThread(clearTarget.chat.id);
+              }
             }}
           />
         ) : null}
