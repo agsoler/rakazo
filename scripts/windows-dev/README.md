@@ -20,6 +20,28 @@ For normal use:
 .\scripts\windows-dev\Stop-RakazoDev.ps1
 ```
 
+Audit a fresh or rebuilt machine before initialization:
+
+```powershell
+.\scripts\windows-dev\Test-RakazoDevPrerequisites.ps1
+```
+
+Create a complete development-state recovery point on an encrypted external or remote drive:
+
+```powershell
+.\scripts\windows-dev\Backup-RakazoDevState.ps1 -DestinationDirectory "E:\Rakazo-Backups"
+```
+
+`E:\Rakazo-Backups` is an example. Create the destination first and substitute the real off-machine
+location. Use `-ValidateOnly` to check the source and destination without stopping anything or
+writing a backup.
+
+Verify a recovery point before depending on or restoring it:
+
+```powershell
+.\scripts\windows-dev\Test-RakazoDevRecoveryPoint.ps1 -RecoveryPointDirectory "E:\Rakazo-Backups\rakazo-dev-state-..."
+```
+
 The initializer refuses to overwrite an existing `.env`. The start script checks Docker Desktop and
 Ollama, verifies the effective Node requirement, starts the isolated PostgreSQL and supervisor
 containers, installs the pinned dependencies, runs migrations, builds the bot-computer image, and

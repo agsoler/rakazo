@@ -25,6 +25,7 @@ In scope:
 - Development service topology and ports.
 - Tracked startup helpers and secret-free environment initialization.
 - Build, test, troubleshooting, backup, and disaster-recovery guidance.
+- Read-only prerequisite and recovery-point audits plus non-destructive development backup creation.
 - A self-contained Markdown handbook and offline HTML SPA.
 
 Out of scope:
@@ -121,6 +122,18 @@ External:
    Impact: tracked helpers resolve Corepack beside the active Node and create repository-local pnpm
    9.15.0 shims under ignored `.local/run` for every nested process.
 
+7. A list of dependency names is not a recoverable machine specification.
+   Evidence: Node and pnpm have repository constraints, while Git, Docker Desktop, and Ollama use
+   current supported Windows releases and runtime capabilities.
+   Impact: the fork provides a read-only prerequisite audit with exact failures, corrective actions,
+   and official installer references rather than relying on memory or a stale version list.
+
+8. “Back up the database, files, and secrets” is not an operational backup method.
+   Evidence: those three items can describe different moments if copied independently while bots are
+   active, and an unrecorded code revision can make restoration ambiguous.
+   Impact: one project-scoped script briefly quiesces development and creates a timestamped recovery
+   point with the database dump, appdata, `.env`, Git revision, tool versions, notes, and checksums.
+
 ## Existing Patterns To Reuse
 
 - `.local/Start-RakazoDev.ps1`: health checks, dependency preparation, migrations, image build, and
@@ -215,7 +228,7 @@ The implementation must satisfy:
 
 | Question | Owner | Needed By | Status |
 |---|---|---|---|
-| Should development backup/restore automation be added? | Future initiative | After the documented manual process is reviewed | deferred |
+| Should destructive development restore automation be added? | Future initiative | After repeated recovery drills establish a safe contract | deferred |
 
 ## Loop Status
 

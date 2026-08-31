@@ -419,10 +419,61 @@ git push origin main</code></pre>
             <p class="lede">Choose what survived. The result is determined by the evidence you still possess.</p>
           </div>
 
+          <div class="recovery-foundation">
+            <article>
+              <p class="eyebrow">Step 1 on a rebuilt PC</p>
+              <h3>Install only PowerShell 7 and Git first</h3>
+              <p>They are the minimum tools needed to retrieve the fork and its machine audit. Use WinGet or the official installers.</p>
+              <div class="command-block">
+                <button type="button" data-copy aria-label="Copy bootstrap commands">Copy</button>
+                <pre><code>winget install --id Microsoft.PowerShell -e --source winget
+winget install --id Git.Git -e --source winget</code></pre>
+              </div>
+              <p class="link-row"><a href="https://learn.microsoft.com/powershell/scripting/install/install-powershell-on-windows" target="_blank" rel="noreferrer">PowerShell installer</a><a href="https://git-scm.com/install/windows" target="_blank" rel="noreferrer">Git installer</a></p>
+            </article>
+            <article>
+              <p class="eyebrow">Step 2 after cloning</p>
+              <h3>Let the fork audit the machine</h3>
+              <p>This read-only script checks exact Node and pnpm compatibility, Docker's Linux engine, Compose, Ollama's API, and configured models. It reports what to install; it changes nothing.</p>
+              <div class="command-block">
+                <button type="button" data-copy aria-label="Copy prerequisite audit command">Copy</button>
+                <pre><code>.\scripts\windows-dev\Test-RakazoDevPrerequisites.ps1</code></pre>
+              </div>
+              <p>Install every item marked <strong>FAIL</strong> from its official source, then rerun the audit until no failures remain.</p>
+            </article>
+          </div>
+
+          <details class="install-details">
+            <summary>Official installers and version rules</summary>
+            <div class="install-grid">
+              <article><h3>Node.js</h3><p>Prefer Node 24 LTS, version 24.15.0 or newer. The audit also accepts supported 22.22.2+ and 26+ releases, but not 23 or 25.</p><a href="https://nodejs.org/en/download" target="_blank" rel="noreferrer">Official Node download</a></article>
+              <article><h3>Docker Desktop</h3><p>Install the current supported Windows release, start it, and use Linux containers. Docker Compose v2 is included.</p><a href="https://docs.docker.com/desktop/setup/install/windows-install/" target="_blank" rel="noreferrer">Official Docker instructions</a></article>
+              <article><h3>Ollama</h3><p>Install the current Windows release and start its API on <code>127.0.0.1:11434</code>. Models can be downloaded again.</p><a href="https://docs.ollama.com/windows" target="_blank" rel="noreferrer">Official Ollama instructions</a></article>
+              <article><h3>pnpm</h3><p>Do not choose a version yourself. Rakazo's scripts prepare the repository-pinned <code>pnpm 9.15.0</code> beside a compatible Node installation.</p></article>
+            </div>
+          </details>
+
+          <div class="state-recovery-card">
+            <p class="eyebrow">What “state recovery point” means</p>
+            <h3>One timestamped folder containing one consistent Rakazo moment</h3>
+            <p>It contains the PostgreSQL database dump, all bot files from <code>.local/data</code>, the matching secret-bearing <code>.env</code>, the exact Git commit and tool versions, checksums, and recovery notes.</p>
+            <p>Validate first, then create it on an encrypted external drive or encrypted remote storage:</p>
+            <div class="command-block">
+              <button type="button" data-copy aria-label="Copy development backup commands">Copy</button>
+              <pre><code>.\scripts\windows-dev\Backup-RakazoDevState.ps1 `
+  -DestinationDirectory "E:\Rakazo-Backups" `
+  -ValidateOnly
+
+.\scripts\windows-dev\Backup-RakazoDevState.ps1 `
+  -DestinationDirectory "E:\Rakazo-Backups"</code></pre>
+            </div>
+            <p><code>E:\Rakazo-Backups</code> is an example; replace it with an existing off-machine location. The backup briefly pauses only port 5300, creates a consistent snapshot, then returns development to its previous state. It contains secrets. Never commit it.</p>
+          </div>
+
           <fieldset class="recovery-selector">
             <legend>Choose a recovery scenario</legend>
-            <button type="button" class="active" data-scenario="fork" aria-pressed="true">Only GitHub survived</button>
-            <button type="button" data-scenario="full" aria-pressed="false">State backup survived too</button>
+            <button type="button" class="active" data-scenario="fork" aria-pressed="true">Fork only — no state recovery point</button>
+            <button type="button" data-scenario="full" aria-pressed="false">Fork + state recovery point</button>
           </fieldset>
 
           <div class="recovery-panel" data-recovery="fork">
@@ -430,12 +481,12 @@ git push origin main</code></pre>
               <span>RESULT</span><strong>Working but empty Rakazo</strong>
             </div>
             <ol>
-              <li>Reinstall Git, PowerShell 7, compatible Node, Docker Desktop, and Ollama.</li>
+              <li>Install PowerShell 7 and Git using the commands or official links above.</li>
               <li>Clone the fork, add upstream, and check out <code>integration/rakazo-dev</code>.</li>
-              <li>Restore or download Ollama models.</li>
+              <li>Run the prerequisite audit. Install each failed item and rerun it until clean.</li>
+              <li>Download local Ollama models or sign in for cloud models.</li>
               <li>Run <code>Initialize-RakazoDev.ps1</code> to generate new secrets.</li>
-              <li>Run <code>Start-RakazoDev.ps1</code>.</li>
-              <li>Create a new account and reconstruct bots manually.</li>
+              <li>Run <code>Start-RakazoDev.ps1</code>, create a new account, and reconstruct bots manually.</li>
             </ol>
             <p class="plain-truth">Old users, chats, groups, bot files, and encrypted credentials are gone because Git never contained them.</p>
           </div>
@@ -445,14 +496,14 @@ git push origin main</code></pre>
               <span>RESULT</span><strong>Software and state recoverable</strong>
             </div>
             <ol>
-              <li>Clone the exact Git commit recorded with the backup.</li>
-              <li>Keep Rakazo stopped and restore the backed-up <code>.env</code> securely.</li>
-              <li>Restore the logical PostgreSQL dump into a fresh <code>rakazo-dev</code> database.</li>
-              <li>Restore the complete <code>.local/data</code> directory.</li>
-              <li>Start that baseline and verify users, bots, history, files, and one bot run.</li>
-              <li>Update to newer upstream code only after the restored baseline works.</li>
+              <li>Install PowerShell 7 and Git, then clone the fork to obtain the recovery tools.</li>
+              <li>Run <code>Test-RakazoDevRecoveryPoint.ps1</code>. Stop if a file or checksum fails.</li>
+              <li>Check out the exact Git commit printed by the verifier.</li>
+              <li>Run the prerequisite audit and install every failed component.</li>
+              <li>Keep Rakazo stopped. Restore the matching <code>.env</code>, PostgreSQL dump, and <code>.local/data</code> only into <code>rakazo-dev</code>.</li>
+              <li>Start and verify the recovered baseline before updating to newer upstream code.</li>
             </ol>
-            <p class="plain-truth">The published release has separate backup and restore scripts. Copy each completed recovery point off the machine.</p>
+            <p class="plain-truth">Restore is deliberately not one click because it replaces current data. Verify the recovery point, preserve anything newer, and use <code>RECOVERY.txt</code> to identify its contents and recorded code revision. The published release has separate backup and restore scripts.</p>
           </div>
 
           <div class="drill-card">

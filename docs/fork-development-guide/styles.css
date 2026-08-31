@@ -814,6 +814,72 @@ main {
   background: var(--red);
 }
 
+.recovery-foundation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.recovery-foundation article,
+.state-recovery-card,
+.install-details {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+}
+
+.recovery-foundation article,
+.state-recovery-card {
+  padding: 1.25rem;
+}
+
+.recovery-foundation h3,
+.state-recovery-card h3,
+.install-grid h3 {
+  margin-top: 0;
+}
+
+.link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.link-row a,
+.install-grid a {
+  color: var(--lime);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.install-details {
+  margin-bottom: 1rem;
+  padding: 1rem 1.25rem;
+}
+
+.install-details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.install-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.install-grid article {
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+}
+
+.state-recovery-card {
+  margin-bottom: 1.25rem;
+  border-color: color-mix(in srgb, var(--lime) 42%, var(--line));
+}
+
 .recovery-selector {
   display: inline-grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1124,6 +1190,10 @@ footer {
   .recovery-selector {
     display: grid;
     width: 100%;
+    grid-template-columns: 1fr;
+  }
+  .recovery-foundation,
+  .install-grid {
     grid-template-columns: 1fr;
   }
   .recovery-selector button {

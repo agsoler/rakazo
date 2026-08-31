@@ -144,7 +144,52 @@ upstream pull request from the integration branch because it contains several in
 
 ## 3. Dependencies
 
-Install these before the first run:
+### Rebuilding a Windows machine
+
+There are two stages. First install only PowerShell 7 and Git so you can clone the fork. Then let
+the fork's prerequisite audit tell you exactly what is missing or incompatible. Do not guess from an
+old copy of this guide.
+
+If WinGet is available, open **Windows PowerShell** as your normal Windows user and run:
+
+```powershell
+winget install --id Microsoft.PowerShell -e --source winget
+winget install --id Git.Git -e --source winget
+```
+
+If `winget` is not recognised, use the official installers:
+
+- [PowerShell for Windows](https://learn.microsoft.com/powershell/scripting/install/install-powershell-on-windows)
+- [Git for Windows](https://git-scm.com/install/windows)
+
+Open a new **PowerShell 7** window after installation, clone the fork as described in section 4,
+then run this read-only audit from the repository root:
+
+```powershell
+.\scripts\windows-dev\Test-RakazoDevPrerequisites.ps1
+```
+
+The audit prints `PASS`, `FAIL`, or `INFO` for every dependency. A `FAIL` includes the corrective
+action. Install only the failed components, restart them if required, and rerun the audit until it
+exits without a failure. The audit does not install software or modify Rakazo.
+
+Use these official sources when a component is missing:
+
+| Dependency | What to install | WinGet command | Official installer or instructions |
+|---|---|---|---|
+| PowerShell | Version 7 or newer | `winget install --id Microsoft.PowerShell -e --source winget` | [Install PowerShell on Windows](https://learn.microsoft.com/powershell/scripting/install/install-powershell-on-windows) |
+| Git | Current supported Git for Windows | `winget install --id Git.Git -e --source winget` | [Git for Windows](https://git-scm.com/install/windows) |
+| Node.js | Prefer current Node 24 LTS, at least 24.15.0; the accepted ranges are listed below | `winget install --id OpenJS.NodeJS.LTS -e --source winget` | [Download Node.js](https://nodejs.org/en/download) |
+| Docker Desktop | Current supported release, using Linux containers and Compose v2 | `winget install --id Docker.DockerDesktop -e --source winget` | [Install Docker Desktop on Windows](https://docs.docker.com/desktop/setup/install/windows-install/) |
+| Ollama | Current Windows release, running its local API | `winget install --id Ollama.Ollama -e --source winget` | [Ollama for Windows](https://docs.ollama.com/windows) |
+
+After installing Docker Desktop, start it and confirm it is using Linux containers. After installing
+Ollama, start it and confirm `http://127.0.0.1:11434/api/tags` responds. The start script manages the
+repository-pinned `pnpm` version; do not install a random global pnpm to solve an audit failure.
+
+### Version rules
+
+The prerequisite audit applies these rules:
 
 | Dependency | Required version or setting | Why |
 |---|---|---|
@@ -157,7 +202,7 @@ Install these before the first run:
 | Docker Desktop | Linux containers and Compose enabled | PostgreSQL and bot computers |
 | Ollama | Running on `127.0.0.1:11434` | Local/model-cloud access |
 
-Verify the command-line tools:
+You can also inspect the individual command-line tools manually:
 
 ```powershell
 pwsh --version
@@ -172,6 +217,8 @@ ollama --version
 The repository's [`package.json`](../package.json) and `pnpm-lock.yaml` are the sources of truth for
 Node and pnpm versions. The lockfile can impose a stricter minimum through a dependency; it currently
 raises the Node 24 minimum to 24.15.0. The tracked start script checks that effective requirement.
+Git, Docker Desktop, and Ollama do not have a repository-pinned patch version; install their current
+supported Windows releases and let the audit verify the capabilities Rakazo actually uses.
 
 The default initializer configures these Ollama models:
 
@@ -343,26 +390,54 @@ directory off the machine. Otherwise one disk failure destroys both the installa
 
 ### Development environment
 
-For a full development-state backup, preserve these together:
+A **development state recovery point** is one timestamped directory containing everything
+irreplaceable from one consistent moment. It contains:
 
-1. A PostgreSQL logical dump from project `rakazo-dev`.
-2. The complete `.local/data` directory.
-3. The `.env` file in encrypted storage.
-4. The Git commit/branch name that produced the snapshot.
+1. `database.sql`: users, bots, groups, messages, settings, and other PostgreSQL records.
+2. `appdata.tar.gz`: bot homes, files, revisions, and artifacts from `.local/data`.
+3. `.env`: the matching secrets and configuration needed to decrypt and run that state.
+4. `manifest.json`: the exact Git commit, branch, ports, and tool versions.
+5. `checksums.sha256`: hashes used to detect missing or damaged files.
+6. `RECOVERY.txt`: a plain-English inventory and warning.
 
-Do not commit any of them. Stop active bot work before taking a coordinated snapshot. Automated,
-destructive development restore tooling is intentionally outside this documentation change; it
-should be implemented and tested as a separate safety-focused change before relying on it.
+The recovery point does not include source code, Docker images, installed packages, or Ollama model
+downloads. Those are reconstructible from the recorded Git commit and official installers. The
+database, bot files, and matching `.env` are not reconstructible and therefore travel together.
 
-Record the current code point with:
+First validate the source and destination without stopping or writing anything:
 
 ```powershell
-git rev-parse HEAD
-git branch --show-current
+.\scripts\windows-dev\Backup-RakazoDevState.ps1 `
+  -DestinationDirectory "E:\Rakazo-Backups" `
+  -ValidateOnly
 ```
 
-After copying a backup, verify that it exists on another device and that its checksum can be read.
-An untested backup is only a hope.
+Then create the recovery point:
+
+```powershell
+.\scripts\windows-dev\Backup-RakazoDevState.ps1 `
+  -DestinationDirectory "E:\Rakazo-Backups"
+```
+
+`E:\Rakazo-Backups` is only an example. Replace it with an existing directory on an encrypted
+external drive or encrypted remote storage. A backup on another folder of the same physical disk
+does not protect against that disk failing.
+
+The backup script briefly stops only the `rakazo-dev` environment so the database and bot files
+describe the same moment. It starts only the development PostgreSQL service, creates a logical dump,
+archives `.local/data`, copies `.env`, records the code and tool versions, calculates checksums, and
+returns port 5300 to its previous running or stopped state. It never addresses the release project.
+
+Verify the completed recovery point immediately and again before any restore:
+
+```powershell
+.\scripts\windows-dev\Test-RakazoDevRecoveryPoint.ps1 `
+  -RecoveryPointDirectory "E:\Rakazo-Backups\rakazo-dev-state-..."
+```
+
+Create a recovery point before an upstream update, database migration, or substantial experiment,
+and periodically whenever the development conversations or bot files matter. Never commit a
+recovery point: it contains secrets and private data.
 
 ## 9. Disaster recovery
 
@@ -373,31 +448,45 @@ You cannot recover old accounts, chats, bots, groups, files, secrets, or model d
 
 Recovery procedure:
 
-1. Reinstall Windows prerequisites: Git, PowerShell 7, compatible Node, Docker Desktop, and Ollama.
-2. Clone the fork and add `upstream` as shown in section 4.
-3. Check out `integration/rakazo-dev`.
-4. Restore or download the required Ollama models.
-5. Run `Initialize-RakazoDev.ps1` to create new secrets and an empty configuration.
-6. Run `Start-RakazoDev.ps1`.
-7. Create a new Rakazo account and rebuild the desired bot configuration manually.
+1. Install PowerShell 7 and Git using the commands or official links in section 3.
+2. Clone the fork, add `upstream`, and check out `integration/rakazo-dev` as shown in section 4.
+3. Run `Test-RakazoDevPrerequisites.ps1`.
+4. Install each failed component from its official source, start Docker Desktop and Ollama, then
+   rerun the audit until it reports no failures.
+5. Pull the required Ollama models or sign in for cloud models.
+6. Run `Initialize-RakazoDev.ps1` to create new secrets and an empty configuration.
+7. Run `Start-RakazoDev.ps1` and open port 5300.
+8. Create a new Rakazo account and rebuild the desired bot configuration manually.
 
 Result: a working, empty development installation.
 
-### Scenario B: the disk fails and an off-machine state backup survives
+### Scenario B: the disk fails and an off-machine development recovery point survives
 
-1. Reinstall prerequisites and clone the exact Git commit recorded with the backup.
-2. Keep Rakazo stopped.
-3. Restore the backed-up `.env` securely.
-4. Recreate the `rakazo-dev` PostgreSQL service and restore the logical database dump.
-5. Restore `.local/data` to the repository root.
-6. Start Rakazo and run migrations only as required by the checked-out version.
-7. Verify sign-in, bots, group history, bot files, model access, and one disposable bot run.
-8. Only then update to newer upstream code.
+1. Install PowerShell 7 and Git, then clone the fork so the recovery tools are available.
+2. Run `Test-RakazoDevRecoveryPoint.ps1` against the surviving directory. Stop if any file or
+   checksum fails.
+3. Read the exact Git commit printed by the verifier and check out that commit. This recreates the
+   code version that wrote the backup.
+4. Run `Test-RakazoDevPrerequisites.ps1`, install every failed component, and rerun it until clean.
+5. Restore or download the Ollama models named by the recovered `.env`.
+6. Keep Rakazo stopped. Preserve any new local state before replacing it.
+7. Restore the recovery point's `.env`, database dump, and `.local/data` into only the isolated
+   `rakazo-dev` environment.
+8. Start the recorded baseline and verify sign-in, bots, group history, bot files, model access, and
+   one disposable bot run.
+9. Only after that baseline works, return to `integration/rakazo-dev` and update deliberately.
 
 Result: the application and its saved state can be recovered.
 
 Why restore the old code first? A backup is easiest to validate against the schema and encryption
 behaviour that created it. Upgrade after proving the restored baseline.
+
+The backup and verification operations are automated because they do not replace current data. The
+actual restore is deliberately not a one-click script: it overwrites a database, `.local/data`, and
+`.env`. Use `RECOVERY.txt` to identify the recovery-point contents and recorded code revision, then
+follow this sequence with the exact recovery-point path. Ask for help before performing the
+destructive replacement rather than improvising against the only copy. This boundary protects the
+release deployment and any newer development state.
 
 ### Scenario C: Docker images disappear from their registry
 
