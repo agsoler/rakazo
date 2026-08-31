@@ -4,11 +4,63 @@ import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
 import {
   cancelSupersededQueuedRuns,
+  resolveThreadTarget,
   stopThreadRuns,
   type ThreadTarget,
   threadHead,
   threadSnapshot,
 } from "./thread-target.js";
+
+describe("resolveThreadTarget", () => {
+  it("scopes group member status to runs in the group thread", async () => {
+    const prisma = {
+      chatGroup: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "group-1",
+          name: "Research",
+          thread: {
+            id: "group-thread",
+            runs: [{ botId: "bot-2", status: "waiting_input" }],
+          },
+          members: [
+            {
+              bot: {
+                id: "bot-1",
+                name: "Researcher",
+                color: "#8B5CF6",
+                runs: [{ status: "running", threadId: "personal-thread" }],
+              },
+            },
+            {
+              bot: {
+                id: "bot-2",
+                name: "Writer",
+                color: "#06B6D4",
+                runs: [],
+              },
+            },
+          ],
+        }),
+      },
+    } as unknown as PrismaClient;
+    const actor = {
+      workspaceId: "workspace-1",
+      userId: "user-1",
+      email: "user@example.com",
+      isDeploymentOwner: true,
+    };
+
+    const target = await resolveThreadTarget(prisma, actor, { groupId: "group-1" });
+
+    expect(target).toMatchObject({
+      kind: "group",
+      members: [
+        { botId: "bot-1", status: "idle" },
+        { botId: "bot-2", status: "waiting_input" },
+      ],
+    });
+  });
+});
 
 describe("threadHead", () => {
   it("returns the durable cursor without loading a snapshot", async () => {

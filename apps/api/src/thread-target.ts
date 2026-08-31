@@ -242,17 +242,18 @@ export async function resolveThreadTarget(
   }
   if (input.groupId) {
     const group = await groupRepos.getGroupTarget(actor, input.groupId);
-    if (!group.thread) throw new IsolationError();
+    const thread = group.thread;
+    if (!thread) throw new IsolationError();
     const members = group.members.map((member) => ({
       botId: member.bot.id,
       name: member.bot.name,
       color: member.bot.color,
-      status: member.bot.runs[0]?.status ?? "idle",
+      status: thread.runs.find((run) => run.botId === member.bot.id)?.status ?? "idle",
     }));
     return {
       kind: "group",
       groupId: group.id,
-      threadId: group.thread.id,
+      threadId: thread.id,
       groupName: group.name,
       members,
       memberBotIds: members.map((member) => member.botId),
