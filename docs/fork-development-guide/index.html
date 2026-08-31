@@ -111,6 +111,11 @@
               <strong>Published release</strong>
               <span>Port 5200 · Compose project <code>rakazo</code> · separate data</span>
             </div>
+            <div class="release-boundary" aria-live="polite">
+              <span class="release-boundary__tag">PERSONAL STABLE</span>
+              <strong>Locally approved integration image</strong>
+              <span>Port 5400 · Compose project <code>rakazo-personal</code> · separate data</span>
+            </div>
           </div>
 
           <div class="fact-grid">
@@ -120,12 +125,17 @@
               <p>The version you edit and test.</p>
             </article>
             <article class="fact-card">
-              <span class="fact-card__number">5200</span>
-              <h3>Published release</h3>
-              <p>Your stable comparison installation.</p>
+              <span class="fact-card__number">5400</span>
+              <h3>Personal stable</h3>
+              <p>The combined version used day to day.</p>
             </article>
             <article class="fact-card">
-              <span class="fact-card__number">2</span>
+              <span class="fact-card__number">5200</span>
+              <h3>Published release</h3>
+              <p>Your official comparison installation.</p>
+            </article>
+            <article class="fact-card">
+              <span class="fact-card__number">3</span>
               <h3>Safety boundaries</h3>
               <p>Different Compose names and different storage.</p>
             </article>
@@ -141,7 +151,7 @@
 
           <div class="prerequisite-strip">
             <span>PowerShell 7</span><span>Git</span><span>Node 22.22+</span><span>Docker Desktop</span
-            ><span>Ollama</span>
+            ><span>Ollama</span><span>Restic for NAS recovery</span>
           </div>
 
           <ol class="checklist" id="setup-checklist">
@@ -410,6 +420,19 @@ git push origin main</code></pre>
             <h3>Three items form a full state backup</h3>
             <p><strong>Database dump + complete <code>.local/data</code> + matching <code>.env</code>.</strong> Store them together, encrypted, off this computer, and record the Git commit.</p>
           </div>
+
+          <div class="state-recovery-card">
+            <p class="eyebrow">Personal stable · port 5400</p>
+            <h3>Promote a pushed integration commit, not a live development container</h3>
+            <p><code>Update-RakazoPersonal.ps1</code> builds immutable app and computer images in a clean detached worktree, records the PostgreSQL and BusyBox images, runs a disposable health test, backs up existing personal state, and deploys only <code>rakazo-personal</code>.</p>
+            <div class="command-block">
+              <button type="button" data-copy aria-label="Copy personal stable commands">Copy</button>
+              <pre><code>.\scripts\windows-personal\Update-RakazoPersonal.ps1
+.\scripts\windows-personal\Backup-RakazoPersonal.ps1
+.\scripts\windows-personal\Sync-RakazoPersonalBackups.ps1</code></pre>
+            </div>
+            <p>Every backup saves state. The exact image archive is saved only when the image-set identity changes. If encrypted off-machine storage is asleep, the local backup succeeds and Sync retries later.</p>
+          </div>
         </section>
 
         <section id="recovery" class="chapter" data-chapter="recovery" hidden>
@@ -474,6 +497,7 @@ winget install --id Git.Git -e --source winget</code></pre>
             <legend>Choose a recovery scenario</legend>
             <button type="button" class="active" data-scenario="fork" aria-pressed="true">Fork only — no state recovery point</button>
             <button type="button" data-scenario="full" aria-pressed="false">Fork + state recovery point</button>
+            <button type="button" data-scenario="personal" aria-pressed="false">Personal stable + encrypted backup</button>
           </fieldset>
 
           <div class="recovery-panel" data-recovery="fork">
@@ -504,6 +528,22 @@ winget install --id Git.Git -e --source winget</code></pre>
               <li>Start and verify the recovered baseline before updating to newer upstream code.</li>
             </ol>
             <p class="plain-truth">Restore is deliberately not one click because it replaces current data. Verify the recovery point, preserve anything newer, and use <code>RECOVERY.txt</code> to identify its contents and recorded code revision. The published release has separate backup and restore scripts.</p>
+          </div>
+
+          <div class="recovery-panel" data-recovery="personal" hidden>
+            <div class="recovery-result recovery-result--full">
+              <span>RESULT</span><strong>Personal software, images, secrets, and state recoverable</strong>
+            </div>
+            <ol>
+              <li>Install PowerShell 7 and Git, clone the fork, and run <code>Test-RakazoPersonalPrerequisites.ps1</code>.</li>
+              <li>Install every missing prerequisite, including restic when retrieving the encrypted off-machine copy.</li>
+              <li>Recover the restic password from its independent safe location; never put it in Git or command history.</li>
+              <li>Initialize an empty personal target and retrieve the selected recovery snapshot.</li>
+              <li>Verify its checksums and exact image archive before starting any restore.</li>
+              <li>Use the guided Restore action. It affects only <code>rakazo-personal</code> and requires <code>RESTORE rakazo-personal</code>.</li>
+              <li>Verify sign-in, bots, groups, conversations, files, models, and one disposable model interaction.</li>
+            </ol>
+            <p class="plain-truth">GitHub rebuilds software, not personal state. Without the encrypted state repository and its password, a new machine can produce only an empty Rakazo.</p>
           </div>
 
           <div class="drill-card">

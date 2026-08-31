@@ -9,15 +9,19 @@ For a visual, interactive version, open
 
 ## The short version
 
-There are two separate Rakazo installations on this computer:
+There are three separate Rakazo installations on this computer:
 
 | Purpose | Address | Docker project | Data | Safe use |
 |---|---|---|---|---|
 | Published release | `http://127.0.0.1:5200` | `rakazo` | Release volumes | Everyday use and comparison |
 | Source development | `http://127.0.0.1:5300` | `rakazo-dev` | `rakazo-dev_pgdata` and `.local/data` | Building and testing this fork |
+| Personal stable | `http://127.0.0.1:5400` | `rakazo-personal` | Independent personal volumes | Daily use of locally approved integration builds |
 
 The tracked scripts in [`scripts/windows-dev`](../scripts/windows-dev) operate only on
 `rakazo-dev`. They do not update, stop, delete, or share storage with the release installation.
+The scripts in [`scripts/windows-personal`](../scripts/windows-personal) likewise operate only on
+`rakazo-personal`. Personal stable is built from a pushed integration commit, not from uncommitted
+files in the current checkout.
 
 From the repository root, normal development is:
 
@@ -96,6 +100,7 @@ The branches have separate responsibilities:
 | `main` | A clean local mirror of official `upstream/main` | No feature commits here |
 | `feat/...` or `fix/...` | One reviewable contribution | Yes, individually |
 | `integration/rakazo-dev` | All locally approved changes combined for everyday testing | No |
+| `ops/...` | Recovery, deployment, or maintenance work kept separate while it is reviewed | Usually no |
 
 This gives us both things we want:
 
@@ -350,6 +355,33 @@ Run integration and end-to-end suites when the change affects persistence, jobs,
 the UI. The repository's [`CONTRIBUTING.md`](../CONTRIBUTING.md) remains the authority for upstream
 contributions.
 
+### Personal stable: promote tested integration code for daily use
+
+Port 5300 is the workshop. Port 5400 is the stable personal installation. Updating personal stable
+does not copy a running development container. The update command performs a controlled promotion:
+
+1. Fetch the pushed `origin/integration/rakazo-dev` commit.
+2. Check out that exact commit in a temporary detached worktree, away from private `.local` data.
+3. Build immutable app and computer images tagged with the full commit ID.
+4. Record the exact PostgreSQL and BusyBox images needed by the same deployment.
+5. Start a uniquely named disposable stack on temporary ports and wait for its health checks.
+6. Back up current personal state if port 5400 has already been initialized.
+7. Deploy the tested image set to only `rakazo-personal` and verify ports 5400 and 3300.
+
+After the one-time initialization, normal promotion is one command:
+
+```powershell
+.\scripts\windows-personal\Update-RakazoPersonal.ps1
+```
+
+The command refuses an unpushed integration commit. This is intentional: after a disk failure the
+fork must contain the source for every personal image we depended on. A failed update retains the
+pre-update recovery point and does not silently reverse a database migration.
+
+Optional Windows shortcuts provide Backup, Update, Restore, Sync, Start, Stop, and Status actions.
+Restore remains guided because it replaces data: it verifies the selected recovery point, creates a
+safety backup, and requires the exact phrase `RESTORE rakazo-personal`.
+
 ## 7. Where everything is stored
 
 | Item | Location | In GitHub? | Required for full recovery? |
@@ -363,6 +395,10 @@ contributions.
 | Installed JavaScript packages | `node_modules` | No | No; reinstall them |
 | Built Docker images | Docker Desktop | No | Usually no; rebuild or pull them |
 | Ollama models | Ollama's local storage | No | Usually no; download them again |
+| Personal-stable database | Docker volume `rakazo-personal_pgdata` | No | Yes |
+| Personal-stable bot files | Docker volume `rakazo-personal_appdata` | No | Yes |
+| Personal configuration | ignored `.local/personal` | No | Yes |
+| Personal recovery points | ignored local recovery root, then encrypted off-machine repository | No | Yes |
 
 Containers and images are not the primary backup. Containers are disposable runtime processes;
 images are reproducible software packages. The irreplaceable parts are the database, bot files, and
@@ -373,6 +409,27 @@ the secrets needed to decrypt stored credentials.
 Use the 3-2-1 rule for state you care about: keep three copies, on two types of storage, with one
 copy off the computer. At minimum, copy a verified recovery set to an encrypted external drive or
 encrypted remote storage.
+
+### Personal stable
+
+Run `Backup-RakazoPersonal.ps1` or use the Backup shortcut. Every run creates a matching database,
+appdata, configuration, source-commit, and checksum snapshot. The first backup for an exact image
+set also saves the app, computer, PostgreSQL, and BusyBox images. Later state backups reuse that
+archive until any image identity changes.
+
+The local recovery point completes first. If encrypted off-machine storage is configured and
+available, the script then asks restic to replicate it. If that storage is asleep or disconnected,
+the local backup remains valid and Sync can retry later:
+
+```powershell
+.\scripts\windows-personal\Backup-RakazoPersonal.ps1
+.\scripts\windows-personal\Sync-RakazoPersonalBackups.ps1
+```
+
+Restic encryption is an additional storage layer, not the Rakazo recovery format. Each local
+recovery-point directory remains self-describing and checksum-verifiable. Keep the restic password
+outside the workstation as well as in its restricted local password file. Losing both the machine
+and the only password makes the encrypted NAS copy unrecoverable.
 
 ### Published release
 
@@ -488,19 +545,40 @@ follow this sequence with the exact recovery-point path. Ask for help before per
 destructive replacement rather than improvising against the only copy. This boundary protects the
 release deployment and any newer development state.
 
-### Scenario C: Docker images disappear from their registry
+### Scenario C: the disk fails and an encrypted personal-stable recovery repository survives
 
-The source development images can be rebuilt from the fork. The published release backup stores the
-exact image set so it can be restored even if a registry image later disappears. This is useful, but
-saved images do not replace database and application-data backups.
+1. Install PowerShell 7 and Git, clone the fork, and check out the integration commit recorded by
+   the selected recovery point.
+2. Run `Test-RakazoPersonalPrerequisites.ps1`; install Docker Desktop, Ollama, and restic if marked
+   missing.
+3. Restore the separately stored restic password file or supply the password through a protected
+   recovery process. Do not put it in Git or command history.
+4. Run `Initialize-RakazoPersonal.ps1` with the recovered off-machine repository settings. This
+   creates a new empty target but does not start it.
+5. Run `Get-RakazoPersonalRecoveryPoint.ps1` to retrieve the chosen snapshot locally.
+6. Run `Test-RakazoPersonalRecoveryPoint.ps1`. Stop on any checksum or image mismatch.
+7. Use the Restore action. It loads the archived images, restores database/appdata/configuration
+   only into `rakazo-personal`, and verifies ports 5400 and 3300.
+8. Sign in and check representative bots, groups, conversations, files, configured models, and one
+   disposable model interaction.
+
+Result: source, exact runtime images, secrets, and personal state are recoverable without a Docker
+registry. If only GitHub survives and no state repository survives, the result is necessarily an
+empty Rakazo.
+
+### Scenario D: Docker images disappear from their registry
+
+The source development images can be rebuilt from the fork. Published-release and personal-stable
+backups store exact image sets so they can be restored even if a registry image later disappears.
+This is useful, but saved images do not replace database and application-data backups.
 
 ## 10. A recovery drill worth doing
 
 Every few months:
 
 1. Confirm all feature and integration commits are pushed to `origin`.
-2. Create a fresh recovery point for the release.
-3. Copy it to encrypted off-machine storage.
+2. Create a fresh personal-stable recovery point.
+3. Run Sync and verify that encrypted off-machine storage is current.
 4. Record checksums and the corresponding Git commit.
 5. On disposable storage or another machine, clone the fork.
 6. Confirm the tracked initializer and start scripts parse and begin correctly.
@@ -527,12 +605,13 @@ check failed.
 
 ```powershell
 Get-NetTCPConnection -State Listen |
-    Where-Object LocalPort -In 5300, 3200, 5433, 7091, 11434 |
+    Where-Object LocalPort -In 5200, 5300, 5400, 3100, 3200, 3300, 5433, 7091, 11434 |
     Format-Table LocalAddress, LocalPort, OwningProcess
 ```
 
 Do not “solve” this by stopping an unknown process. Identify it first. Port 5200 belongs to the
-separate release and should remain untouched.
+separate release, port 5300 is development, and port 5400 is personal stable. Identify the owner
+before stopping anything.
 
 ### Docker Desktop restarted
 

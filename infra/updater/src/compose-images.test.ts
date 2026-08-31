@@ -84,7 +84,8 @@ describe("the images compose file", () => {
   });
 
   it("publishes the web UI on loopback only", () => {
-    expect(compose.services.web?.ports).toEqual(["127.0.0.1:5173:5173"]);
+    expect(compose.services.web?.ports).toEqual([`127.0.0.1:\${RAKAZO_WEB_PORT:-5173}:5173`]);
+    expect(compose.services.api?.ports).toEqual([`127.0.0.1:\${RAKAZO_API_PORT:-3100}:3100`]);
     expect(compose.services.postgres?.ports).toBeUndefined();
     expect(compose.services.supervisor?.ports).toBeUndefined();
   });

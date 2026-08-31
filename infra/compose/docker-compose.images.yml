@@ -112,7 +112,7 @@ services:
       WAKEUP_DRIVER: graphile
       AGENT_RUNTIME: pi
     ports:
-      - "127.0.0.1:3100:3100"
+      - "127.0.0.1:${RAKAZO_API_PORT:-3100}:3100"
     volumes:
       - appdata:/data
     networks:
@@ -190,7 +190,7 @@ services:
       RAKAZO_HOST: ${RAKAZO_HOST:-localhost}
       SCREEN_PROXY_SECRET: ${SCREEN_PROXY_SECRET:?Set SCREEN_PROXY_SECRET in .env}
     ports:
-      - "127.0.0.1:5173:5173"
+      - "127.0.0.1:${RAKAZO_WEB_PORT:-5173}:5173"
     networks:
       - app
     depends_on:

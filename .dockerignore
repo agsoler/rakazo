@@ -6,6 +6,7 @@
 .DS_Store
 .env
 .env.*
+.local
 node_modules
 **/node_modules
 **/dist
@@ -17,6 +18,8 @@ coverage
 data
 artifacts
 backups
+recovery-points
+image-sets
 design
 PRODUCT_PLAN.md
 playwright-report
