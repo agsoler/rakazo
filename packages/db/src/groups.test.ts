@@ -210,6 +210,7 @@ describe("bot-created group persistence", () => {
       thread: {
         id: "thread-1",
         unread: false,
+        runs: [],
         messages: [
           {
             blocks: [
