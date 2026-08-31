@@ -14,6 +14,7 @@ import {
   prependThreadHistoryPage,
   progressMessageId,
   reduceLiveMessageBlocks,
+  retainStartingContextMessages,
   runFailureError,
   subagentBlockFromPayload,
   upsertMessageById,
@@ -234,7 +235,7 @@ export function reduceThreadSnapshot(
     return {
       ...prev,
       cursor: event.seq,
-      messages: [],
+      messages: retainStartingContextMessages(prev.messages),
       olderCursor: null,
       run: null,
       activeRuns: [],

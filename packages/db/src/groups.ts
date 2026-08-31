@@ -4,9 +4,11 @@ import {
   GROUP_MEMBER_MIN,
   type Group,
   type GroupMember,
+  type MessageBlock,
 } from "@rakazo/contracts";
 import { ACTIVE_RUN_STATUSES } from "@rakazo/core";
 import type { Prisma, PrismaClient } from "./client.js";
+import { createThreadMessageInTransaction } from "./messages.js";
 import { IsolationError } from "./scope.js";
 
 const activeRunStatuses = [...ACTIVE_RUN_STATUSES];
@@ -25,6 +27,9 @@ type GroupRecord = {
   pinned: boolean;
   sectionId: string | null;
   archivedAt: Date | null;
+  creatorBotId: string | null;
+  creatorContext: string | null;
+  createKey: string | null;
   createdAt: Date;
   updatedAt: Date;
   thread: {
@@ -86,7 +91,7 @@ function hasMinimumActiveMembers(members: readonly unknown[]) {
 }
 
 async function assertOwnedBots(
-  prisma: PrismaClient,
+  prisma: Prisma.TransactionClient,
   actor: Actor,
   botIds: string[],
 ): Promise<GroupMember[]> {
@@ -199,32 +204,110 @@ export function createGroupRepos(prisma: PrismaClient) {
       return group;
     },
 
-    async createGroup(actor: Actor, input: { name: string; botIds: string[] }): Promise<Group> {
-      const members = await assertOwnedBots(prisma, actor, input.botIds);
-      const created = await prisma.$transaction(async (tx) => {
-        const group = await tx.chatGroup.create({
-          data: {
+    async getGroupByCreateKey(actor: Actor, createKey: string): Promise<Group | null> {
+      const group = await prisma.chatGroup.findFirst({
+        where: {
+          workspaceId: actor.workspaceId,
+          userId: actor.userId,
+          createKey,
+        },
+        include: groupInclude,
+      });
+      return group ? mapGroup(group as GroupRecord) : null;
+    },
+
+    async createGroup(
+      actor: Actor,
+      input: {
+        name: string;
+        botIds: string[];
+        creatorBotId?: string;
+        creatorContext?: string;
+        createKey?: string;
+        initialContext?: Extract<MessageBlock, { kind: "group_context" }>;
+      },
+    ): Promise<Group> {
+      const create = async () =>
+        prisma.$transaction(async (tx) => {
+          if (input.createKey) {
+            const existing = await tx.chatGroup.findFirst({
+              where: {
+                workspaceId: actor.workspaceId,
+                userId: actor.userId,
+                createKey: input.createKey,
+              },
+              include: groupInclude,
+            });
+            if (existing) return existing;
+          }
+          const members = await assertOwnedBots(tx, actor, input.botIds);
+          if (
+            input.creatorBotId &&
+            !members.some((member) => member.botId === input.creatorBotId)
+          ) {
+            throw new IsolationError("The creating bot must be a group member");
+          }
+          const group = await tx.chatGroup.create({
+            data: {
+              workspaceId: actor.workspaceId,
+              userId: actor.userId,
+              name: input.name.trim(),
+              creatorBotId: input.creatorBotId,
+              creatorContext: input.creatorContext,
+              createKey: input.createKey,
+            },
+          });
+          await tx.chatGroupMember.createMany({
+            data: members.map((member) => ({ groupId: group.id, botId: member.botId })),
+          });
+          const thread = await tx.thread.create({
+            data: {
+              workspaceId: actor.workspaceId,
+              groupId: group.id,
+              userId: actor.userId,
+            },
+          });
+          if (input.initialContext) {
+            await createThreadMessageInTransaction(tx, {
+              threadId: thread.id,
+              role: "user",
+              blocks: [input.initialContext],
+            });
+          }
+          return tx.chatGroup.findFirstOrThrow({
+            where: { id: group.id },
+            include: groupInclude,
+          });
+        });
+      let created: Awaited<ReturnType<typeof create>>;
+      try {
+        created = await create();
+      } catch (error) {
+        if (!input.createKey || !isUniqueConstraintError(error)) throw error;
+        created = await prisma.chatGroup.findFirstOrThrow({
+          where: {
             workspaceId: actor.workspaceId,
             userId: actor.userId,
-            name: input.name.trim(),
+            createKey: input.createKey,
           },
-        });
-        await tx.chatGroupMember.createMany({
-          data: members.map((member) => ({ groupId: group.id, botId: member.botId })),
-        });
-        await tx.thread.create({
-          data: {
-            workspaceId: actor.workspaceId,
-            groupId: group.id,
-            userId: actor.userId,
-          },
-        });
-        return tx.chatGroup.findFirstOrThrow({
-          where: { id: group.id },
           include: groupInclude,
         });
-      });
+      }
       return mapGroup(created as GroupRecord);
+    },
+
+    async getGroupContexts(group: GroupRecord) {
+      if (!group.thread) throw new IsolationError("Group is missing its thread");
+      const firstMessage = await prisma.message.findFirst({
+        where: { threadId: group.thread.id },
+        orderBy: { seq: "asc" },
+        select: { blocks: true },
+      });
+      return {
+        creatorBotId: group.creatorBotId,
+        creatorContext: group.creatorContext,
+        sharedContext: sharedContextFromBlocks(firstMessage?.blocks),
+      };
     },
 
     async updateGroup(
@@ -439,6 +522,25 @@ export function createGroupRepos(prisma: PrismaClient) {
 
     mapGroup,
   };
+}
+
+function sharedContextFromBlocks(blocks: unknown): string | null {
+  if (!Array.isArray(blocks)) return null;
+  const context = blocks.find((block): block is { kind: "group_context"; text: string } =>
+    Boolean(
+      block &&
+        typeof block === "object" &&
+        "kind" in block &&
+        block.kind === "group_context" &&
+        "text" in block &&
+        typeof block.text === "string",
+    ),
+  );
+  return context?.text ?? null;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
 }
 
 export async function lockOwnedGroup(

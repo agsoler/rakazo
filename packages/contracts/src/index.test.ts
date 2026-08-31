@@ -80,6 +80,33 @@ describe("contracts", () => {
     ).toBe(false);
   });
 
+  it("validates contextual group message blocks", () => {
+    expect(
+      MessageBlock.parse({
+        kind: "group_context",
+        creatorBotId: "bot-1",
+        creatorBotName: "Coordinator",
+        text: "Shared requirements",
+      }),
+    ).toMatchObject({ kind: "group_context", creatorBotId: "bot-1" });
+    expect(
+      MessageBlock.parse({
+        kind: "child_group",
+        groupId: "group-1",
+        name: "Project team",
+        memberCount: 2,
+      }),
+    ).toMatchObject({ kind: "child_group", groupId: "group-1" });
+    expect(
+      MessageBlock.safeParse({
+        kind: "group_context",
+        creatorBotId: "bot-1",
+        creatorBotName: "Coordinator",
+        text: "x".repeat(8_001),
+      }).success,
+    ).toBe(false);
+  });
+
   it("keeps model OAuth start results mode-specific", () => {
     const shared = {
       loginId: "login-1",

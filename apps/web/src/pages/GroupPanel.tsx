@@ -1,7 +1,14 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { type Bot, GROUP_MEMBER_MAX, GROUP_MEMBER_MIN, type Group } from "@rakazo/contracts";
+import {
+  type Bot,
+  GROUP_MEMBER_MAX,
+  GROUP_MEMBER_MIN,
+  type Group,
+  type GroupDetail,
+} from "@rakazo/contracts";
 import { BotAvatar, Button } from "@rakazo/ui-web";
 import { useMemo, useState } from "react";
+import { BuiCard } from "../components/beautiful-ui/primitives";
 
 function validSelection(name: string, selected: readonly string[]) {
   return (
@@ -139,12 +146,16 @@ export function CreateGroupForm({
 
 export function GroupSettings({
   group,
+  detail,
   bots,
+  onClose,
   onSave,
   onRemove,
 }: {
   group: Group;
+  detail: GroupDetail | null;
   bots: Bot[];
+  onClose: () => void;
   onSave: (input: { name?: string; botIds?: string[] }) => Promise<void>;
   onRemove: () => Promise<void>;
 }) {
@@ -153,6 +164,12 @@ export function GroupSettings({
   const [selected, setSelected] = useState(group.members.map((member) => member.botId));
   const [pending, setPending] = useState<"save" | "remove" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const creatorName = detail?.creatorBotId
+    ? group.members.find((member) => member.botId === detail.creatorBotId)?.name
+    : undefined;
+  const hasStartingContext = Boolean(
+    detail && (detail.creatorBotId || detail.sharedContext || detail.creatorContext),
+  );
 
   async function mutate(kind: "save" | "remove", action: () => Promise<void>) {
     if (pending) return;
@@ -191,6 +208,14 @@ export function GroupSettings({
         <span className="text-[13.5px] text-[#85858A]">
           <Trans>Group settings</Trans>
         </span>
+        <button
+          type="button"
+          aria-label={t`Close group settings`}
+          onClick={onClose}
+          className="cursor-pointer rounded-md p-1 text-[#85858A] transition-colors hover:bg-[#1A1A1D] hover:text-[#ECECEE] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8B5CF6]"
+        >
+          ✕
+        </button>
       </div>
       {error ? (
         <p role="alert" className="mb-3 text-[13px] text-[#C94244]">
@@ -216,6 +241,28 @@ export function GroupSettings({
         onChange={setSelected}
         maxHeight="max-h-[240px]"
       />
+      {detail && hasStartingContext ? (
+        <BuiCard className="mt-5 space-y-4 border border-[#26262A] p-4">
+          <div>
+            <div className="text-[14px] text-[#85858A]">
+              <Trans>Created by</Trans>
+            </div>
+            <div data-testid="group-creator-name" className="mt-1 text-[15px] text-[#ECECEE]">
+              {detail.creatorBotId ? (creatorName ?? t`Unknown bot`) : t`Deleted bot`}
+            </div>
+          </div>
+          <ReadOnlyContext
+            label={t`Shared starting context`}
+            text={detail.sharedContext}
+            empty={t`No shared starting context was provided.`}
+          />
+          <ReadOnlyContext
+            label={t`Creator-only starting context`}
+            text={detail.creatorContext}
+            empty={t`No creator-only starting context was provided.`}
+          />
+        </BuiCard>
+      ) : null}
       <Button
         className="mt-5 w-full"
         disabled={pending !== null || !validSelection(name, selected)}
@@ -231,6 +278,28 @@ export function GroupSettings({
       >
         {pending === "remove" ? <Trans>Deleting…</Trans> : <Trans>Delete group</Trans>}
       </button>
+    </div>
+  );
+}
+
+function ReadOnlyContext({
+  label,
+  text,
+  empty,
+}: {
+  label: string;
+  text: string | null;
+  empty: string;
+}) {
+  return (
+    <div>
+      <div className="text-[14px] text-[#85858A]">{label}</div>
+      <div
+        className="mt-1 whitespace-pre-wrap rounded-[10px] bg-[#1A1A1D] px-3 py-2.5 text-[14px] leading-6 text-[#C9C9CE]"
+        dir="auto"
+      >
+        {text || empty}
+      </div>
     </div>
   );
 }

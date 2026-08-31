@@ -1,8 +1,14 @@
 import type { ConnectorTool } from "@rakazo/adapter-kit";
+import {
+  GROUP_CONTEXT_MAX_LENGTH,
+  GROUP_MEMBER_MAX,
+  GROUP_NAME_MAX_LENGTH,
+} from "@rakazo/contracts";
 
 export const DELEGATION_TOOL_NAMES = new Set([
   "run_subagent",
   "spawn_bot",
+  "create_group",
   "archive_bot",
   "delete_bot",
   "handoff_to_bot",
@@ -538,6 +544,38 @@ export const builtinAgentTools: ConnectorTool[] = [
     },
   },
   {
+    name: "create_group",
+    description:
+      "Create a lasting group with this bot and 1–5 other active bots. Optionally provide shared starting context for every member and creator-only starting context for this bot. Creation does not start work or wake any member; the user opens the group and starts it explicitly.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: GROUP_NAME_MAX_LENGTH },
+        member_bot_ids: {
+          type: "array",
+          minItems: 1,
+          maxItems: GROUP_MEMBER_MAX - 1,
+          uniqueItems: true,
+          items: { type: "string" },
+          description:
+            "IDs of the other bots to add. Do not include this bot; it joins automatically.",
+        },
+        shared_context: {
+          type: "string",
+          maxLength: GROUP_CONTEXT_MAX_LENGTH,
+          description: "Optional starting context visible to every group member.",
+        },
+        creator_context: {
+          type: "string",
+          maxLength: GROUP_CONTEXT_MAX_LENGTH,
+          description:
+            "Optional starting context supplied only to this creating bot. The authenticated owner can inspect it in group settings.",
+        },
+      },
+      required: ["name", "member_bot_ids"],
+    },
+  },
+  {
     name: "archive_bot",
     description:
       "Archive a bot this bot created. Archiving stops its work and routines, hides it from the active list, and preserves its conversation, memory, and files for the user to restore or delete later. confirm_name must exactly match its name. This cannot archive you, bots the user created, or bots another bot created.",
@@ -557,7 +595,7 @@ export const builtinAgentTools: ConnectorTool[] = [
   {
     name: "message_bot",
     description:
-      "Send a useful update, question, or result to another of the user's bots. Delivery is async and does not end your turn. Continue independent work; do not poll or send ack-only messages. Later updates only if they add something new.",
+      "Send a useful update, question, or result to another of the user's bots. In a group, use this only for a bot outside the current group; use handoff_to_bot for a current member so both sides of the exchange remain in the shared group conversation. Delivery is async and does not end your turn. Continue independent work; do not poll or send ack-only messages. Later updates only if they add something new.",
     inputSchema: {
       type: "object",
       properties: {
@@ -570,7 +608,8 @@ export const builtinAgentTools: ConnectorTool[] = [
         intent: {
           type: "string",
           enum: ["request", "result", "question", "status", "fyi"],
-          description: "What the recipient should do with this message. Defaults to request.",
+          description:
+            "Purpose of the message. Use request when asking the recipient to perform work, question when asking for an answer, result when returning completed delegated work, status when reporting progress on delegated work, or fyi when providing information that may require no response. Defaults to request.",
         },
       },
       required: ["message"],

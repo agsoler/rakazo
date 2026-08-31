@@ -100,6 +100,7 @@ describe("filterBuiltinToolsForThread", () => {
   it("keeps handoff and schedule tools in groups", () => {
     expect(filterBuiltinToolsForThread(tools, "group-1").map((tool) => tool.name)).toEqual([
       "handoff_to_bot",
+      "message_bot",
       "schedule_create",
       "schedule_list",
       "schedule_cancel",

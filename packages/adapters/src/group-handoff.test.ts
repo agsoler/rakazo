@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
-import { handoffToGroupBot } from "./group-handoff.js";
+import { handoffToGroupBot, loadGroupContext } from "./group-handoff.js";
 
 const run = {
   id: "run-a",
@@ -153,5 +153,41 @@ describe("group handoff ownership", () => {
       }),
     ).resolves.toEqual({ error: "cannot verify the group handoff chain" });
     expect(runCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("group starting context visibility", () => {
+  function contextPrisma() {
+    return {
+      chatGroup: {
+        findUnique: vi.fn(async () => ({
+          name: "Project team",
+          creatorBotId: "bot-a",
+          creatorContext: "Private coordination notes",
+          members: ["bot-a", "bot-b"].map((id) => ({
+            bot: { id, name: id.toUpperCase(), title: "", description: "" },
+          })),
+        })),
+      },
+    } as unknown as PrismaClient;
+  }
+
+  it("supplies creator-only context to the creator", async () => {
+    const context = await loadGroupContext(contextPrisma(), "group-1", {
+      id: "bot-a",
+      name: "BOT-A",
+    });
+    expect(context?.instructions).toContain("<creator_context>");
+    expect(context?.instructions).toContain("Private coordination notes");
+    expect(context?.memberIds).toEqual(["bot-a", "bot-b"]);
+  });
+
+  it("never supplies creator-only context to another member", async () => {
+    const context = await loadGroupContext(contextPrisma(), "group-1", {
+      id: "bot-b",
+      name: "BOT-B",
+    });
+    expect(context?.instructions).not.toContain("<creator_context>");
+    expect(context?.instructions).not.toContain("Private coordination notes");
   });
 });

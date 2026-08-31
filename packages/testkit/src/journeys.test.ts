@@ -8,6 +8,8 @@ import {
   FakeSandboxProvider,
   handoffToGroupBot,
   ManagedSandboxEmulator,
+  messageBot,
+  returnBotMessageOutcome,
 } from "@rakazo/adapters";
 import { ONCE_ROUTINE_CRON } from "@rakazo/core";
 import {
@@ -16,7 +18,7 @@ import {
   createThreadMessage,
   RunHistoryWriteError,
 } from "@rakazo/db";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { sessionCookieHeader } from "./index.js";
 
 type App = { request: (input: string, init?: RequestInit) => Promise<Response> };
@@ -2372,6 +2374,263 @@ describeJourneys("required product journeys", () => {
       runAt: new Date(Date.now() + 180_000).toISOString(),
     });
     expect(afterFire.status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("24: a coordinator bot creates a contextual project group and clearing preserves its context", async () => {
+    const cookie = await signup(app, `context-group-j-${stamp}@rakazo.test`, "Context Group");
+    const coordinator = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Coordinator",
+      title: "Coordinates projects",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const researcher = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Researcher",
+      title: "Finds evidence",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const writer = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Writer",
+      title: "Drafts reports",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const shared = `requirements-${stamp}`;
+    const privateNotes = `coordination-only-${stamp}`;
+    await sendAndWait(
+      app,
+      cookie,
+      coordinator.id,
+      `create a group named Project team with bot ids ${researcher.id},${writer.id}; shared context [${shared}] creator context [${privateNotes}]`,
+    );
+
+    const groups = await rpc<Array<{ id: string; name: string; members: unknown[] }>>(
+      app,
+      cookie,
+      "groups/list",
+    );
+    const group = groups.find((row) => row.name === "Project team");
+    expect(group?.members).toHaveLength(3);
+    const detail = await rpc<{
+      id: string;
+      threadId: string;
+      creatorBotId: string | null;
+      sharedContext: string | null;
+      creatorContext: string | null;
+      messages: Array<{ blocks: unknown }>;
+    }>(app, cookie, "groups/get", { groupId: group!.id });
+    expect(detail.creatorBotId).toBe(coordinator.id);
+    expect(detail.sharedContext).toBe(shared);
+    expect(detail.creatorContext).toBe(privateNotes);
+    expect(JSON.stringify(detail.messages)).toContain(shared);
+    expect(JSON.stringify(detail.messages)).not.toContain(privateNotes);
+    expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBe(0);
+    expect(await prisma.task.count({ where: { threadId: detail.threadId } })).toBe(0);
+
+    const parent = await rpc<Snap>(app, cookie, "threads/get", { botId: coordinator.id });
+    const childGroupCard = parent.messages
+      .flatMap((message) => message.blocks)
+      .find(
+        (block) =>
+          block && typeof block === "object" && "kind" in block && block.kind === "child_group",
+      );
+    expect(childGroupCard).toMatchObject({ name: "Project team", memberCount: 3 });
+    expect(JSON.stringify(childGroupCard)).not.toContain(privateNotes);
+    const createdEvent = await prisma.event.findFirst({
+      where: { threadId: parent.threadId, type: "group.created" },
+      orderBy: { seq: "desc" },
+    });
+    expect(JSON.stringify(createdEvent?.payload)).not.toContain(privateNotes);
+
+    await sendGroupAndWait(app, cookie, group!.id, "Begin by outlining the requirements.");
+    expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBeGreaterThan(0);
+
+    await rpc(app, cookie, "threads/clear", { groupId: group!.id });
+    const clearedDetail = await rpc<{
+      sharedContext: string | null;
+      creatorContext: string | null;
+      messages: Array<{ blocks: unknown }>;
+    }>(app, cookie, "groups/get", { groupId: group!.id });
+    expect(clearedDetail.sharedContext).toBe(shared);
+    expect(clearedDetail.creatorContext).toBe(privateNotes);
+    expect(clearedDetail.messages).toHaveLength(1);
+    expect(JSON.stringify(clearedDetail.messages)).toContain(shared);
+    expect(JSON.stringify(clearedDetail.messages)).not.toContain(privateNotes);
+    expect(JSON.stringify(clearedDetail.messages)).not.toContain("Begin by outlining");
+  });
+
+  it("25: a role-playing group keeps private plot notes from other members and waits for the user", async () => {
+    const cookie = await signup(app, `roleplay-group-j-${stamp}@rakazo.test`, "Roleplay Group");
+    const gm = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "GM",
+      title: "Facilitator",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const player = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Player",
+      title: "Participant",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    await sendAndWait(
+      app,
+      cookie,
+      gm.id,
+      `create a group named Evening story with bot ids ${player.id}; shared context [The game begins at the harbour.] creator context [The captain is the hidden antagonist.]`,
+    );
+    const group = (await rpc<Array<{ id: string; name: string }>>(app, cookie, "groups/list")).find(
+      (row) => row.name === "Evening story",
+    );
+    const detail = await rpc<{
+      threadId: string;
+      creatorContext: string | null;
+      messages: Array<{ blocks: unknown }>;
+    }>(app, cookie, "groups/get", { groupId: group!.id });
+    expect(detail.creatorContext).toBe("The captain is the hidden antagonist.");
+    expect(JSON.stringify(detail.messages)).not.toContain("hidden antagonist");
+    expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBe(0);
+    await sendGroupAndWait(app, cookie, group!.id, "GM, set the scene and start the game.");
+    expect(await prisma.run.count({ where: { threadId: detail.threadId } })).toBeGreaterThan(0);
+  });
+
+  it("26: group collaboration keeps member handoffs shared and outside delegation results in the originating group", async () => {
+    const cookie = await signup(app, `group-routing-j-${stamp}@rakazo.test`, "Group Routing");
+    const me = await rpc<Me>(app, cookie, "me");
+    const ellie = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Ellie",
+      title: "Coordinator",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const churchill = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Churchill",
+      title: "Writer",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const marco = await rpc<Bot>(app, cookie, "bots/create", {
+      name: "Marco",
+      title: "Researcher",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const group = await rpc<{ id: string; threadId: string }>(app, cookie, "groups/create", {
+      name: "Focused team",
+      botIds: [ellie.id, churchill.id],
+    });
+    const botRows = await prisma.bot.findMany({
+      where: { id: { in: [ellie.id, churchill.id, marco.id] } },
+      select: { id: true, thread: { select: { id: true } } },
+    });
+    const personalThread = (botId: string) =>
+      botRows.find((bot) => bot.id === botId)?.thread?.id ?? "";
+
+    const sourceTask = await prisma.task.create({
+      data: {
+        workspaceId: me.workspaceId,
+        botId: ellie.id,
+        threadId: group.threadId,
+        userId: me.userId,
+        prompt: "Coordinate the next stage",
+        status: "running",
+      },
+    });
+    const sourceRun = await prisma.run.create({
+      data: {
+        workspaceId: me.workspaceId,
+        botId: ellie.id,
+        threadId: group.threadId,
+        taskId: sourceTask.id,
+        userId: me.userId,
+        status: "running",
+        trigger: "user",
+      },
+    });
+    const notify = vi.fn(async () => undefined);
+    const enqueue = vi.fn(async () => undefined);
+    const toolDeps = { prisma, events: { notify }, jobs: { enqueue } } as never;
+    const affectedThreadIds = [
+      group.threadId,
+      personalThread(ellie.id),
+      personalThread(churchill.id),
+    ];
+    const beforeReject = {
+      messages: await prisma.message.count({ where: { threadId: { in: affectedThreadIds } } }),
+      tasks: await prisma.task.count({ where: { threadId: { in: affectedThreadIds } } }),
+      runs: await prisma.run.count({ where: { threadId: { in: affectedThreadIds } } }),
+    };
+
+    const rejected = await messageBot(
+      toolDeps,
+      sourceRun,
+      { id: ellie.id, name: ellie.name },
+      { bot_id: churchill.id, message: "Draft the response" },
+    );
+    expect(rejected).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/Use handoff_to_bot.*remain in this shared group conversation/),
+    });
+    expect(await prisma.message.count({ where: { threadId: { in: affectedThreadIds } } })).toBe(
+      beforeReject.messages,
+    );
+    expect(await prisma.task.count({ where: { threadId: { in: affectedThreadIds } } })).toBe(
+      beforeReject.tasks,
+    );
+    expect(await prisma.run.count({ where: { threadId: { in: affectedThreadIds } } })).toBe(
+      beforeReject.runs,
+    );
+    expect(notify).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+
+    const delegated = await messageBot(
+      toolDeps,
+      sourceRun,
+      { id: ellie.id, name: ellie.name },
+      { bot_id: marco.id, message: "Research this separately" },
+    );
+    expect(delegated).toMatchObject({ ok: true, botId: marco.id });
+    const delegatedRun = await prisma.run.findFirstOrThrow({
+      where: { botId: marco.id, threadId: personalThread(marco.id), trigger: "bot_message" },
+      orderBy: { createdAt: "desc" },
+    });
+    await prisma.run.update({
+      where: { id: delegatedRun.id },
+      data: { status: "completed", completedAt: new Date() },
+    });
+
+    expect(
+      await returnBotMessageOutcome(
+        toolDeps,
+        delegatedRun,
+        { id: marco.id, name: marco.name },
+        "Marco's separate research result",
+      ),
+    ).toBe(true);
+    const returnedRun = await prisma.run.findFirstOrThrow({
+      where: { botId: ellie.id, threadId: group.threadId, trigger: "bot_message" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(returnedRun.threadId).toBe(group.threadId);
+    const groupMessages = await prisma.message.findMany({
+      where: { threadId: group.threadId },
+      select: { blocks: true },
+    });
+    expect(JSON.stringify(groupMessages)).toContain("Marco's separate research result");
+    const elliePersonalMessages = await prisma.message.findMany({
+      where: { threadId: personalThread(ellie.id) },
+      select: { blocks: true },
+    });
+    expect(JSON.stringify(elliePersonalMessages)).not.toContain("Marco's separate research result");
   });
 });
 

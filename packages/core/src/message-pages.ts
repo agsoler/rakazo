@@ -75,6 +75,14 @@ export function upsertMessageById<T extends { id: string }>(messages: readonly T
   return updated;
 }
 
+export function retainStartingContextMessages<
+  T extends { blocks: ReadonlyArray<{ kind: string }> },
+>(messages: readonly T[]): T[] {
+  return messages.filter((message) =>
+    message.blocks.some((block) => block.kind === "group_context"),
+  );
+}
+
 function isDurableMessage(message: { id: string }): boolean {
   return !message.id.startsWith("progress:") && !message.id.startsWith("subagent:");
 }

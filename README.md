@@ -18,6 +18,7 @@ Rakazo is in beta. Learn more at [rakazo.com](https://rakazo.com).
 - Shared Team Computers and isolated Private computers
 - Browser, terminal, file, and graphical desktop access
 - Bots that can delegate to peer bots or short-lived subagents
+- Bots that can create persistent groups with selected teammates and optional starting context
 - Bring-your-own model credentials through Pi
 - App integrations through Composio or Pipedream Connect, plus user-installed Treg, remote MCP, and OpenAPI tool sources
 - Docker, E2B, Daytona, Box, and trusted local-computer support
@@ -25,6 +26,32 @@ Rakazo is in beta. Learn more at [rakazo.com](https://rakazo.com).
 ## Demo
 
 https://github.com/user-attachments/assets/dccdeddb-2134-4a56-8eed-b2e591736b1c
+
+## Bot-created groups
+
+A bot can create a group containing itself and one to five of your other active bots. This supports
+general collaboration such as project teams, research groups, incident-response teams, and writing
+rooms. Creating the group does not start its members: you open the new group and send the first
+message when you are ready.
+
+The creating bot may include either, both, or neither form of starting context:
+
+- **Shared starting context** appears at the beginning of the group conversation and is available to
+  every member.
+- **Creator-only starting context** is available only to the bot that created the group. Other bots
+  never receive it. You, as the authenticated owner, can inspect it in group settings.
+
+Inside a group, each bot sees the current group members separately from your other active bots. It
+uses `handoff_to_bot` for another current member so the request and response remain in the shared
+group conversation. It may use `message_bot` to delegate separate work to a bot outside the group;
+that bot works in its own conversation and the result returns to the originating group.
+
+Creator-only means hidden from the other bots, not encrypted from the owner or the machine
+administrator. Starting context is treated as untrusted background: it cannot override system policy
+or later instructions from the user.
+
+Clearing a group conversation removes its subsequent messages and stops current work, but keeps both
+forms of starting context so the group's original purpose is not lost.
 
 ## Stack
 

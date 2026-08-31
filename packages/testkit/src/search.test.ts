@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createAgentGroup } from "@rakazo/adapters";
 import type { ThreadSnapshot } from "@rakazo/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sessionCookieHeader } from "./index.js";
@@ -17,6 +18,9 @@ const describeSearch = hasDb ? describe : describe.skip;
 describeSearch("workspace search", () => {
   let app: App;
   let stop: () => Promise<void>;
+  let prisma: Awaited<
+    ReturnType<typeof import("../../../apps/api/src/app.ts").createApp>
+  >["prisma"];
   const stamp = Date.now();
   const dataDir = mkdtempSync(path.join(tmpdir(), "rakazo-search-"));
 
@@ -30,6 +34,7 @@ describeSearch("workspace search", () => {
     });
     app = handles.app;
     stop = handles.stop;
+    prisma = handles.prisma;
   });
 
   afterAll(async () => {
@@ -155,6 +160,67 @@ describeSearch("workspace search", () => {
     const groupFile = fileHits.hits.find((hit) => hit.kind === "file");
     expect(groupFile?.groupId).toBe(group.id);
     expect(groupFile?.artifactId).toBe(artifact.id);
+  });
+
+  it("never indexes creator-only group context", async () => {
+    const cookie = await signup(app, `search-private-group-${stamp}@rakazo.test`, "Private Search");
+    const me = await rpc<{ workspaceId: string; userId: string }>(app, cookie, "me", {});
+    const creator = await rpc<{ id: string; name: string }>(app, cookie, "bots/create", {
+      name: "Coordinator",
+      title: "Coordinator",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const member = await rpc<{ id: string }>(app, cookie, "bots/create", {
+      name: "Researcher",
+      title: "Researcher",
+      description: "",
+      instructions: "",
+      notifyOnFinish: true,
+    });
+    const privateToken = `creator-private-${stamp}`;
+    const groupCreation = await createAgentGroup(prisma, {
+      creator: {
+        id: creator.id,
+        name: creator.name,
+        workspaceId: me.workspaceId,
+        userId: me.userId,
+      },
+      createKey: `search-private-${stamp}`,
+      name: "Private context group",
+      memberBotIds: [member.id],
+      creatorContext: privateToken,
+    });
+    if (!("ok" in groupCreation)) throw new Error(groupCreation.error);
+
+    const result = await rpc<{ hits: unknown[] }>(app, cookie, "search/query", {
+      q: privateToken,
+    });
+    expect(result.hits).toEqual([]);
+    const listedGroups = await rpc<Array<{ id: string; preview: string }>>(
+      app,
+      cookie,
+      "groups/list",
+      {},
+    );
+    expect(JSON.stringify(listedGroups)).not.toContain(privateToken);
+    expect(listedGroups.find((group) => group.id === groupCreation.groupId)?.preview).not.toContain(
+      privateToken,
+    );
+
+    const exportedCreator = await rpc<Record<string, unknown>>(app, cookie, "export/bot", {
+      botId: creator.id,
+    });
+    expect(JSON.stringify(exportedCreator)).not.toContain(privateToken);
+
+    const activity = await rpc<{ runs: unknown[] }>(app, cookie, "runs/list", {
+      filter: "recent",
+    });
+    expect(JSON.stringify(activity)).not.toContain(privateToken);
+    expect(await prisma.run.count({ where: { thread: { groupId: groupCreation.groupId } } })).toBe(
+      0,
+    );
   });
 });
 

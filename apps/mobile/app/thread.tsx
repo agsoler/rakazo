@@ -60,6 +60,8 @@ import {
   type MobileMessagePage,
   type MobileSnapshot,
   mergeMobileSnapshot,
+  mobileThreadEventCreatesGroup,
+  openMobileGroup,
   prependMobileMessagePage,
   rpc,
   shouldApplyMobileThreadRefresh,
@@ -281,14 +283,20 @@ export default function Thread() {
     setThreadScrollState(scrollBehavior.current.state());
   }, [threadKey]);
 
+  const refreshMentionGroups = useCallback(
+    () =>
+      rpc<MobileGroup[]>("groups/list")
+        .then(setMentionGroups)
+        .catch(() => setMentionGroups([])),
+    [],
+  );
+
   useEffect(() => {
     void rpc<MobileBot[]>("bots/list")
       .then(setMentionBots)
       .catch(() => setMentionBots([]));
-    void rpc<MobileGroup[]>("groups/list")
-      .then(setMentionGroups)
-      .catch(() => setMentionGroups([]));
-  }, []);
+    void refreshMentionGroups();
+  }, [refreshMentionGroups]);
 
   useEffect(() => {
     if (mentionBots.length === 0) {
@@ -647,6 +655,7 @@ export default function Thread() {
             (event) => {
               cursor = Math.max(cursor, event.seq ?? -1);
               retryMs = 250;
+              if (mobileThreadEventCreatesGroup(event)) void refreshMentionGroups();
               if (
                 event.type === "thread.progress" ||
                 event.type === "agent.tool.called" ||
@@ -668,7 +677,7 @@ export default function Thread() {
                 readVisibleTarget.current = null;
                 markReadIfVisible();
               }
-              if (isRunTerminalEvent(event)) {
+              if (isRunTerminalEvent(event) || event.type === "thread.cleared") {
                 if (!jumpScrollTarget.current && !expandedHistoryThread.current) {
                   void refresh().catch(() => undefined);
                 }
@@ -690,7 +699,7 @@ export default function Thread() {
     return () => {
       abort.abort();
     };
-  }, [botId, groupId, markReadIfVisible]);
+  }, [botId, groupId, markReadIfVisible, refreshMentionGroups]);
 
   useEffect(() => {
     if (!botId && !groupId) return;
@@ -934,6 +943,10 @@ export default function Thread() {
       router.push({ pathname: "/thread", params: { botId: id, name: botName } }),
     [router],
   );
+  const openGroup = useCallback(
+    (id: string, groupName: string) => openMobileGroup(router.push, id, groupName),
+    [router],
+  );
 
   const speak = useCallback(
     (message: MobileMessage) =>
@@ -1095,6 +1108,7 @@ export default function Thread() {
             canAnswer={message.id === answerableAskMessageId}
             onAnswer={answerMessage}
             onOpenBot={openBot}
+            onOpenGroup={openGroup}
             onPreviewMarkdown={setMarkdownPreview}
             onSpeak={message.role === "bot" ? speak : undefined}
           />
@@ -1780,6 +1794,7 @@ const MessageBubble = memo(function MessageBubble({
   canAnswer,
   onAnswer,
   onOpenBot,
+  onOpenGroup,
   onPreviewMarkdown,
   onSpeak,
 }: {
@@ -1792,6 +1807,7 @@ const MessageBubble = memo(function MessageBubble({
   canAnswer: boolean;
   onAnswer: (message: MobileMessage, answer: string) => Promise<void>;
   onOpenBot: (botId: string, name: string) => void;
+  onOpenGroup: (groupId: string, name: string) => void;
   onPreviewMarkdown: (target: MarkdownArtifactPreviewTarget) => void;
   onSpeak?: (message: MobileMessage) => void;
 }) {
@@ -1864,8 +1880,37 @@ const MessageBubble = memo(function MessageBubble({
       </View>
     );
   }
+  const groupContext = message.blocks.find(
+    (block): block is Extract<MessageBlock, { kind: "group_context" }> =>
+      block.kind === "group_context",
+  );
+  if (groupContext) {
+    return (
+      <View
+        accessible
+        accessibilityLabel={`Shared starting context from ${groupContext.creatorBotName}: ${groupContext.text}`}
+        style={{
+          width: "94%",
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: "#2B2B30",
+          backgroundColor: "#141417",
+          paddingHorizontal: 16,
+          paddingVertical: 14,
+        }}
+      >
+        <Text style={{ color: "#85858A", fontSize: 12.5, fontWeight: "600" }}>
+          Shared starting context · {groupContext.creatorBotName}
+        </Text>
+        <View style={{ marginTop: 8 }}>
+          <ChatMarkdown>{groupContext.text}</ChatMarkdown>
+        </View>
+      </View>
+    );
+  }
   const special = message.blocks.find(
-    (block) => block.kind === "subagent" || block.kind === "child_bot",
+    (block) =>
+      block.kind === "subagent" || block.kind === "child_bot" || block.kind === "child_group",
   );
   if (special?.kind === "subagent") {
     const running = special.status === "running";
@@ -1962,6 +2007,31 @@ const MessageBubble = memo(function MessageBubble({
               ? "Archived. Chat, memory, and files kept."
               : "Removed with chat, computer, and memory."
             : special.title || "Opened its thread."}
+        </Text>
+      </Pressable>
+    );
+  }
+  if (special?.kind === "child_group") {
+    return (
+      <Pressable
+        accessibilityLabel={`Open group ${special.name}`}
+        onPress={() => onOpenGroup(special.groupId, special.name)}
+        style={{
+          width: "90%",
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: "#2B2B30",
+          backgroundColor: "#17171A",
+          paddingHorizontal: 16,
+          paddingVertical: 14,
+        }}
+      >
+        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
+          <Text style={{ color: "#ECECEE", fontSize: 15, fontWeight: "600" }}>{special.name}</Text>
+          <Text style={{ color: "#B59AF8", fontSize: 13 }}>group</Text>
+        </View>
+        <Text style={{ color: "#A8A8AD", marginTop: 8, fontSize: 14.5 }}>
+          {special.memberCount} members · Ready when you are
         </Text>
       </Pressable>
     );

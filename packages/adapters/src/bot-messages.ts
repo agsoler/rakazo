@@ -12,6 +12,7 @@ import {
 import {
   appendEventInTransaction,
   createThreadMessageInTransaction,
+  lockOwnedGroup,
   type PrismaClient,
   withTransactionRetry,
 } from "@rakazo/db";
@@ -118,7 +119,8 @@ export async function messageBot(
     };
   }
 
-  const targetThreadId = target.thread.id;
+  const returnThreadId = await resolveReturnThreadId(deps.prisma, run, target.id, sourceContext);
+  const targetThreadId = returnThreadId ?? target.thread.id;
 
   // A tool call can be re-executed after a lease expiry, so a delivery has to be
   // replayable: without this the recipient is messaged twice and woken twice.
@@ -163,6 +165,77 @@ export async function messageBot(
         for (const threadId of [run.threadId, targetThreadId].sort()) {
           await tx.$queryRaw`SELECT id FROM threads WHERE id = ${threadId} FOR UPDATE`;
         }
+
+        const sourceThread = await tx.thread.findFirst({
+          where: {
+            id: run.threadId,
+            workspaceId: run.workspaceId,
+            userId: run.userId,
+          },
+          select: { groupId: true },
+        });
+        if (!sourceThread)
+          return { ok: false as const, error: "source thread is no longer available" };
+
+        const targetDeliveryThread = await tx.thread.findFirst({
+          where: {
+            id: targetThreadId,
+            workspaceId: run.workspaceId,
+            userId: run.userId,
+          },
+          select: { botId: true, groupId: true },
+        });
+        if (!targetDeliveryThread)
+          return { ok: false as const, error: "return thread is no longer available" };
+
+        const lockedGroupIds = new Set<string>();
+        const lockGroup = async (groupId: string) => {
+          if (lockedGroupIds.has(groupId)) return;
+          await lockOwnedGroup(tx, { workspaceId: run.workspaceId, userId: run.userId }, groupId);
+          lockedGroupIds.add(groupId);
+        };
+
+        if (sourceThread.groupId) {
+          // Group membership can be edited while a run is active. Share the
+          // same group lock used by those edits, then enforce routing from the
+          // trusted source thread before creating any delivery side effects.
+          await lockGroup(sourceThread.groupId);
+          const currentMember = await tx.chatGroupMember.findFirst({
+            where: {
+              groupId: sourceThread.groupId,
+              botId: target.id,
+              bot: { archivedAt: null },
+            },
+            select: { id: true },
+          });
+          if (currentMember) {
+            return {
+              ok: false as const,
+              error: `${target.name} is already an active member of this group. Do not use message_bot when both bots are communicating within the same group: it would move their exchange into a separate personal conversation. Use handoff_to_bot instead so the request and response remain in this shared group conversation.`,
+            };
+          }
+        }
+
+        if (targetDeliveryThread.groupId) {
+          await lockGroup(targetDeliveryThread.groupId);
+          const targetStillInGroup = await tx.chatGroupMember.findFirst({
+            where: {
+              groupId: targetDeliveryThread.groupId,
+              botId: target.id,
+              bot: { archivedAt: null },
+            },
+            select: { id: true },
+          });
+          if (!targetStillInGroup) {
+            return {
+              ok: false as const,
+              error: `${target.name} is no longer an active member of the originating group`,
+            };
+          }
+        } else if (targetDeliveryThread.botId !== target.id) {
+          return { ok: false as const, error: "return thread does not belong to the target bot" };
+        }
+
         // Claim the delivery key inside the transaction so a concurrent retry
         // either sees the winner or loses on the unique (threadId, clientNonce).
         if (deliveryKey) {
@@ -379,6 +452,30 @@ async function markBotOutcomeReturned(prisma: PrismaClient, runId: string) {
     },
     data: { botOutcomeReturnedAt: new Date() },
   });
+}
+
+async function resolveReturnThreadId(
+  prisma: PrismaClient,
+  run: { workspaceId: string; userId: string; botId: string },
+  targetBotId: string,
+  sourceContext: { fromBotId: string; returnToMessageId?: string } | undefined,
+): Promise<string | undefined> {
+  if (sourceContext?.fromBotId !== targetBotId || !sourceContext.returnToMessageId) {
+    return undefined;
+  }
+  const origin = await prisma.message.findFirst({
+    where: {
+      id: sourceContext.returnToMessageId,
+      botId: targetBotId,
+      thread: { workspaceId: run.workspaceId, userId: run.userId },
+    },
+    select: { threadId: true, blocks: true },
+  });
+  const blocks = Array.isArray(origin?.blocks) ? (origin.blocks as MessageBlock[]) : [];
+  const matchesDelivery = blocks.some(
+    (block) => block.kind === "bot_message_sent" && block.toBotId === run.botId,
+  );
+  return matchesDelivery ? origin?.threadId : undefined;
 }
 
 function isUniqueConstraintError(error: unknown) {

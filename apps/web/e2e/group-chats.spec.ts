@@ -20,6 +20,159 @@ async function createBot(page: import("@playwright/test").Page, name: string) {
   return activeBotId(page);
 }
 
+test("two-bot member picker does not flicker its scrollbar", async ({ page }) => {
+  const stamp = Date.now();
+  await signup(page, `group-scroll-${stamp}@rakazo.test`, "password12", "Group Scroll E2E");
+  await completeOnboarding(page);
+  await page.goto("/app");
+  await page.waitForURL(/\/app\/[^/]+$/);
+
+  const firstBotId = await activeBotId(page);
+  const secondBotId = await createBot(page, "Second member");
+  const group = await rpc<{ id: string }>(page, "groups/create", {
+    name: "Stable member picker",
+    botIds: [firstBotId, secondBotId],
+  });
+
+  await page.goto(`/app/g/${group.id}`);
+  await page.getByTestId("bot-settings-trigger").click();
+  const settings = page.getByTestId("side-panel");
+  const memberPicker = settings.locator("div.mt-2.max-h-\\[240px\\].overflow-y-auto");
+  await expect(memberPicker).toBeVisible();
+
+  const states = await memberPicker.evaluate(async (element) => {
+    const observed: Array<{ clientWidth: number; overflow: boolean }> = [];
+    let previous = "";
+    for (let sample = 0; sample < 150; sample++) {
+      const state = {
+        clientWidth: element.clientWidth,
+        overflow: element.scrollHeight > element.clientHeight,
+      };
+      const key = JSON.stringify(state);
+      if (key !== previous) observed.push(state);
+      previous = key;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return observed;
+  });
+
+  expect(states).toHaveLength(1);
+  expect(states[0]).toMatchObject({ overflow: false });
+});
+
+test("bot-created contextual group card opens the group and owner-visible settings", async ({
+  page,
+}) => {
+  const stamp = Date.now();
+  await signup(page, `bot-group-${stamp}@rakazo.test`, "password12", "Bot Group E2E");
+  await completeOnboarding(page);
+  const chiefId = activeBotId(page);
+  const researcherId = await createBot(page, "Context Researcher");
+  await page
+    .locator("aside")
+    .first()
+    .getByRole("button", { name: /^Chief/ })
+    .click();
+  await page.waitForURL(new RegExp(`/app/${chiefId}$`));
+
+  const composer = page.getByRole("textbox", { name: "Message Chief" });
+  await composer.fill(
+    `create a group named Launch team with bot ids ${researcherId}; shared context [Prepare a concise launch brief.] creator context [Coordinate the final review privately.]`,
+  );
+  await composer.press("Enter");
+  const groupCard = page.getByRole("button", { name: /Launch team.*group.*2 members/i });
+  await expect(groupCard).toBeVisible({ timeout: 60_000 });
+  await groupCard.click();
+  await page.waitForURL(/\/app\/g\/[^/]+$/);
+  await expect(page.getByText("Shared starting context", { exact: false }).first()).toBeVisible();
+  await expect(
+    page.getByTestId("transcript").getByText("Prepare a concise launch brief.", { exact: true }),
+  ).toBeVisible();
+
+  await page.getByTestId("bot-settings-trigger").click();
+  const settings = page.getByTestId("side-panel");
+  await expect(settings.getByText("Created by", { exact: true })).toBeVisible();
+  await expect(settings.getByTestId("group-creator-name")).toHaveText("Chief");
+  await expect(settings.getByText("Shared starting context", { exact: true })).toBeVisible();
+  await expect(
+    settings.getByText("Prepare a concise launch brief.", { exact: true }),
+  ).toBeVisible();
+  await expect(settings.getByText("Creator-only starting context", { exact: true })).toBeVisible();
+  await expect(
+    settings.getByText("Coordinate the final review privately.", { exact: true }),
+  ).toBeVisible();
+
+  let groupListRefreshes = 0;
+  let groupDetailRefetches = 0;
+  await page.route("**/rpc/groups/list", async (route) => {
+    groupListRefreshes += 1;
+    await route.continue();
+  });
+  await page.route("**/rpc/groups/get", async (route) => {
+    groupDetailRefetches += 1;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.continue();
+  });
+
+  const settingsScroll = settings.locator(".rk-scroll");
+  await settingsScroll.evaluate((element) => {
+    element.setAttribute("data-context-unmounted", "false");
+    const observer = new MutationObserver(() => {
+      if (!element.textContent?.includes("Created by")) {
+        element.setAttribute("data-context-unmounted", "true");
+      }
+    });
+    observer.observe(element, { childList: true, subtree: true });
+  });
+
+  await rpc(page, "bots/create", {
+    name: "Refresh trigger",
+    title: "",
+    description: "",
+    instructions: "",
+    notifyOnFinish: false,
+  });
+  await expect.poll(() => groupListRefreshes).toBeGreaterThan(0);
+  await page.waitForTimeout(500);
+
+  await expect(settingsScroll).toHaveAttribute("data-context-unmounted", "false");
+  expect(groupDetailRefetches).toBeGreaterThan(0);
+
+  const closeSettings = settings.getByRole("button", { name: "Close group settings" });
+  await expect(closeSettings).toHaveCSS("cursor", "pointer");
+  await closeSettings.hover();
+  await expect(closeSettings).toHaveCSS("color", "rgb(236, 236, 238)");
+  await expect(closeSettings).toHaveCSS("background-color", "rgb(26, 26, 29)");
+  await closeSettings.click();
+  await expect(settings).toHaveAttribute("data-panel", "closed");
+
+  const launchTeam = page
+    .locator("aside")
+    .first()
+    .getByRole("button", { name: /^Launch team/ });
+  await launchTeam.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Clear conversation", exact: true }).click();
+  const clearDialog = page.getByRole("alertdialog", {
+    name: "Clear Launch team’s conversation?",
+  });
+  await expect(clearDialog).toBeVisible();
+  await clearDialog.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(clearDialog).toHaveCount(0);
+  await expect(
+    page.getByTestId("transcript").getByText("Prepare a concise launch brief.", { exact: true }),
+  ).toBeVisible();
+
+  await page.getByTestId("bot-settings-trigger").click();
+  await expect(
+    page.getByTestId("side-panel").getByText("Prepare a concise launch brief.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByTestId("side-panel")
+      .getByText("Coordinate the final review privately.", { exact: true }),
+  ).toBeVisible();
+});
+
 test("create group from + and see two bots in one transcript", async ({ page }, testInfo) => {
   const stamp = Date.now();
   await signup(page, `group-${stamp}@rakazo.test`, "password12", "Group E2E");
@@ -106,7 +259,10 @@ test("create group from + and see two bots in one transcript", async ({ page }, 
   await expect(groupAvatar.locator(".rakazo-bot-avatar")).toHaveCount(2);
   const workingAvatar = groupAvatar.locator('[data-working="true"]');
   await expect(workingAvatar).toHaveCount(1);
-  await expect(workingAvatar.locator("svg")).toHaveCSS("animation-name", "rakazo-avatar-spin");
+  await expect(workingAvatar.locator(".rakazo-bot-avatar-ring")).toHaveCSS(
+    "animation-name",
+    "rakazo-avatar-spin",
+  );
   await captureScreenshot(page, testInfo, "group-avatar-active");
   await page.unroute("**/rpc/groups/list");
   await page.unroute("**/rpc/threads/get");

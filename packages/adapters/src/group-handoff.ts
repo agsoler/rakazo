@@ -1,6 +1,11 @@
 import { runContinueJob } from "@rakazo/adapter-kit";
 import { MessageBlock } from "@rakazo/contracts";
-import { botMessageHopExhausted, nextBotMessageHop, renderGroupMembersContext } from "@rakazo/core";
+import {
+  botMessageHopExhausted,
+  nextBotMessageHop,
+  renderGroupCreatorContext,
+  renderGroupMembersContext,
+} from "@rakazo/core";
 import {
   appendEventInTransaction,
   createThreadMessageInTransaction,
@@ -190,7 +195,7 @@ export async function loadGroupContext(
   prisma: PrismaClient,
   groupId: string,
   self: { id: string; name: string },
-): Promise<string | undefined> {
+): Promise<{ instructions: string; memberIds: string[] } | undefined> {
   const group = await prisma.chatGroup.findUnique({
     where: { id: groupId },
     include: {
@@ -204,9 +209,15 @@ export async function loadGroupContext(
     },
   });
   if (!group) return undefined;
-  return renderGroupMembersContext(
+  const members = renderGroupMembersContext(
     group.name,
     group.members.map((member) => member.bot),
     self,
   );
+  const creatorContext =
+    group.creatorBotId === self.id ? renderGroupCreatorContext(group.creatorContext) : undefined;
+  return {
+    instructions: [members, creatorContext].filter(Boolean).join("\n\n"),
+    memberIds: group.members.map((member) => member.bot.id),
+  };
 }

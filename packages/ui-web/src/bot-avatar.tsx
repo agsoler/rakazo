@@ -78,7 +78,7 @@ export const BotAvatar = memo(function BotAvatar({
       }}
     >
       <svg
-        className="rakazo-bot-avatar-ring absolute pointer-events-none"
+        className="absolute pointer-events-none"
         style={{
           inset: -4,
           width: size + 8,
@@ -88,16 +88,18 @@ export const BotAvatar = memo(function BotAvatar({
         viewBox="0 0 48 48"
         fill="none"
       >
-        <circle
-          cx="24"
-          cy="24"
-          r="22"
-          stroke={`url(#${gradId})`}
-          strokeWidth="3.2"
-          strokeLinecap="round"
-          strokeDasharray="45 80"
-        />
-        <circle cx="43" cy="24" r="2.8" fill="#ffffff" />
+        <g className="rakazo-bot-avatar-ring">
+          <circle
+            cx="24"
+            cy="24"
+            r="22"
+            stroke={`url(#${gradId})`}
+            strokeWidth="3.2"
+            strokeLinecap="round"
+            strokeDasharray="45 80"
+          />
+          <circle cx="43" cy="24" r="2.8" fill="#ffffff" />
+        </g>
         <defs>
           <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />

@@ -35,4 +35,19 @@ describe("copyableMessageText", () => {
       ),
     ).toBe("iMessage · Alice: dinner at 7?");
   });
+
+  it("copies shared starting context", () => {
+    expect(
+      copyableMessageText(
+        message([
+          {
+            kind: "group_context",
+            creatorBotId: "bot-1",
+            creatorBotName: "Coordinator",
+            text: "Shared requirements",
+          },
+        ]),
+      ),
+    ).toBe("Shared requirements");
+  });
 });

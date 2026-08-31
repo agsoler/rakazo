@@ -7,6 +7,9 @@ import {
   type MobileMessage,
   type MobileSnapshot,
   mergeMobileSnapshot,
+  mobileGroupContextPresentation,
+  mobileThreadEventCreatesGroup,
+  openMobileGroup,
   prependMobileMessagePage,
   rpc,
   shouldApplyMobileThreadRefresh,
@@ -424,6 +427,81 @@ describe("mobile thread event reduction", () => {
     ).toBe("iMessage · Alex: Hello from the group");
   });
 
+  it("formats contextual group cards without creator-only data", () => {
+    expect(
+      blockText(
+        mobileMessage("context-1", [
+          {
+            kind: "group_context",
+            creatorBotId: "bot-1",
+            creatorBotName: "Coordinator",
+            text: "Shared requirements",
+          },
+        ]),
+      ),
+    ).toBe("Shared starting context from Coordinator: Shared requirements");
+    expect(
+      blockText(
+        mobileMessage("group-1", [
+          { kind: "child_group", groupId: "group-1", name: "Project team", memberCount: 2 },
+        ]),
+      ),
+    ).toBe("Group Project team (2 members)");
+  });
+
+  it("navigates a pressed child-group card to the mobile group thread", () => {
+    const navigate = vi.fn();
+    openMobileGroup(navigate, "group-1", "Project team");
+    expect(navigate).toHaveBeenCalledWith({
+      pathname: "/group-thread",
+      params: { groupId: "group-1", name: "Project team" },
+    });
+  });
+
+  it("presents owner-visible group context and creator attribution", () => {
+    expect(
+      mobileGroupContextPresentation({
+        id: "group-1",
+        name: "Project team",
+        pinned: false,
+        sectionId: null,
+        archivedAt: null,
+        preview: "Shared requirements",
+        unread: false,
+        updatedAt: "2026-08-30T00:00:00.000Z",
+        members: [
+          { botId: "bot-1", name: "Coordinator", color: "#000000" },
+          { botId: "bot-2", name: "Researcher", color: "#ffffff" },
+        ],
+        creatorBotId: "bot-1",
+        sharedContext: "Shared requirements",
+        creatorContext: "Private coordination notes",
+      }),
+    ).toEqual({
+      creatorName: "Coordinator",
+      sharedContext: "Shared requirements",
+      creatorContext: "Private coordination notes",
+    });
+  });
+
+  it("refreshes group navigation for group-created events and child-group messages", () => {
+    expect(mobileThreadEventCreatesGroup({ type: "group.created" })).toBe(true);
+    expect(
+      mobileThreadEventCreatesGroup({
+        type: "thread.message.created",
+        payload: {
+          blocks: [{ kind: "child_group", groupId: "group-1", name: "Team", memberCount: 2 }],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      mobileThreadEventCreatesGroup({
+        type: "thread.message.created",
+        payload: { blocks: [{ kind: "text", text: "No group" }] },
+      }),
+    ).toBe(false);
+  });
+
   it("deduplicates durable messages and replaces matching transient subagent state", () => {
     const initial = snapshot([
       mobileMessage("message-1", [{ kind: "text", text: "old" }]),
@@ -487,12 +565,30 @@ describe("mobile thread event reduction", () => {
   });
 
   it("clears loaded history and active state when another client clears the thread", () => {
-    const initial = snapshot([mobileMessage("message-1", [{ kind: "text", text: "old" }])], 1);
+    const initial = snapshot(
+      [
+        mobileMessage("group-context", [
+          {
+            kind: "group_context",
+            creatorBotId: "bot-1",
+            creatorBotName: "Coordinator",
+            text: "Shared requirements",
+          },
+        ]),
+        mobileMessage("message-1", [{ kind: "text", text: "old" }]),
+      ],
+      1,
+    );
     initial.run = { id: "run-1", status: "running" };
 
     const next = applyMobileThreadEvent(initial, { type: "thread.cleared", seq: 12 });
 
-    expect(next).toMatchObject({ cursor: 12, messages: [], olderCursor: null, run: null });
+    expect(next).toMatchObject({
+      cursor: 12,
+      messages: [expect.objectContaining({ id: "group-context" })],
+      olderCursor: null,
+      run: null,
+    });
   });
 
   it("applies the durable waiting-input run transition", () => {

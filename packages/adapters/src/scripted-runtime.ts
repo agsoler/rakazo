@@ -199,6 +199,32 @@ export function inferScript(
       },
     ];
   }
+  if (lower.includes("create a group named") && lower.includes("with bot ids")) {
+    const name = /create a group named\s+(.+?)\s+with bot ids/i.exec(prompt)?.[1]?.trim() ?? "Team";
+    const ids = /with bot ids\s+([^;]+)/i
+      .exec(prompt)?.[1]
+      ?.split(",")
+      .map((id) => id.trim());
+    const sharedContext = /shared context\s*\[([\s\S]*?)\]/i.exec(prompt)?.[1];
+    const creatorContext = /creator context\s*\[([\s\S]*?)\]/i.exec(prompt)?.[1];
+    return [
+      {
+        assistant: "creating that group without starting its members.",
+        toolCalls: [
+          {
+            name: "create_group",
+            args: {
+              name,
+              member_bot_ids: ids ?? [],
+              ...(sharedContext === undefined ? {} : { shared_context: sharedContext }),
+              ...(creatorContext === undefined ? {} : { creator_context: creatorContext }),
+            },
+          },
+        ],
+        complete: true,
+      },
+    ];
+  }
   if (
     lower.includes("spawn a bot") ||
     lower.includes("spawn a child") ||

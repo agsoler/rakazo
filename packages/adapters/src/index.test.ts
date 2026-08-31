@@ -68,6 +68,24 @@ describe("scripted runtime", () => {
     expect(script?.some((t) => t.toolCalls?.some((c) => c.args.name === "Scout"))).toBe(true);
   });
 
+  it("creates a contextual group without starting it", () => {
+    const script = inferScript(
+      "create a group named Project team with bot ids bot-2,bot-3; shared context [Requirements] creator context [Coordination notes]",
+    );
+    expect(script?.[0]?.toolCalls).toEqual([
+      {
+        name: "create_group",
+        args: {
+          name: "Project team",
+          member_bot_ids: ["bot-2", "bot-3"],
+          shared_context: "Requirements",
+          creator_context: "Coordination notes",
+        },
+      },
+    ]);
+    expect(script?.[0]?.complete).toBe(true);
+  });
+
   it("runs an in-thread subagent", () => {
     const script = inferScript("run a subagent to summarize the notes");
     expect(script?.some((t) => t.toolCalls?.some((c) => c.name === "run_subagent"))).toBe(true);
@@ -152,7 +170,7 @@ describe("scripted runtime", () => {
 
 describe("builtin tools", () => {
   it("exposes the tools the executor actually applies", async () => {
-    const { builtinAgentTools } = await import("./builtin-tools.js");
+    const { builtinAgentTools, DELEGATION_TOOL_NAMES } = await import("./builtin-tools.js");
     expect(builtinAgentTools.map((t) => t.name)).toEqual(
       expect.arrayContaining([
         "write_file",
@@ -163,6 +181,7 @@ describe("builtin tools", () => {
         "request_secret",
         "run_subagent",
         "spawn_bot",
+        "create_group",
         "archive_bot",
         "skill_read",
         "skill_create",
@@ -172,6 +191,19 @@ describe("builtin tools", () => {
         "web_fetch",
       ]),
     );
+    expect(DELEGATION_TOOL_NAMES.has("create_group")).toBe(true);
+
+    const messageBot = builtinAgentTools.find((tool) => tool.name === "message_bot");
+    expect(messageBot).toMatchObject({
+      inputSchema: {
+        properties: {
+          intent: {
+            description:
+              "Purpose of the message. Use request when asking the recipient to perform work, question when asking for an answer, result when returning completed delegated work, status when reporting progress on delegated work, or fyi when providing information that may require no response. Defaults to request.",
+          },
+        },
+      },
+    });
   });
 });
 
