@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Creates ignored local configuration and secrets for rakazo-personal.
+.DESCRIPTION
+Initialises project rakazo-personal on ports 5400 and 3300 by default. It does not start containers
+or overwrite an existing configuration and throws on unsafe or inconsistent input.
+.EXAMPLE
+.\scripts\windows-personal\Initialize-RakazoPersonal.ps1
+#>
 [CmdletBinding()]
 param(
     [string]$DockerContext = "desktop-linux",
@@ -13,10 +22,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "RakazoPersonal.Common.ps1")
-$contextArgs = @{ DockerContext = $DockerContext }
-if ($DeploymentRoot) { $contextArgs.DeploymentRoot = $DeploymentRoot }
-if ($RecoveryRoot) { $contextArgs.RecoveryRoot = $RecoveryRoot }
-$context = Get-RakazoPersonalContext @contextArgs
+$context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 
 if ($Models.Count -eq 0 -or $DefaultModel -notin $Models) {
     throw "Supply at least one model and make DefaultModel one of those models."

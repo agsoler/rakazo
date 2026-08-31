@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Configures optional encrypted Restic replication for personal recovery points.
+.DESCRIPTION
+Writes only ignored private configuration. Repository creation occurs only with
+-InitializeRepository; password generation occurs only with -GeneratePasswordFile. Throws on error.
+.EXAMPLE
+.\scripts\windows-personal\Initialize-RakazoPersonalReplication.ps1 -Repository '<absolute-path>' -PasswordFile '<password-file>'
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Repository,
@@ -13,10 +22,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "RakazoPersonal.Common.ps1")
 
-$contextArgs = @{ DockerContext = $DockerContext }
-if ($DeploymentRoot) { $contextArgs.DeploymentRoot = $DeploymentRoot }
-if ($RecoveryRoot) { $contextArgs.RecoveryRoot = $RecoveryRoot }
-$context = Get-RakazoPersonalContext @contextArgs
+$context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 $config = Assert-RakazoPersonalInitialized $context
 if (-not [IO.Path]::IsPathRooted($Repository)) { throw "Repository must be an absolute local or network path." }
 $repositoryPath = Get-RakazoFullPath $Repository

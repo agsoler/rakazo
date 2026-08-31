@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Runs one personal-stable operation from a readable Windows launcher.
+.DESCRIPTION
+Dispatches only the named rakazo-personal action, displays success or failure, and waits for a key
+so shortcut output remains visible. Restore still requires point selection and exact confirmation.
+.EXAMPLE
+.\scripts\windows-personal\Invoke-RakazoPersonalAction.ps1 -Action Status
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
@@ -30,9 +39,8 @@ try {
             if (-not [int]::TryParse($selection, [ref]$number) -or $number -lt 1 -or $number -gt $points.Count) { throw "Invalid recovery-point selection." }
             $point = $points[$number - 1].FullName
             & (Join-Path $PSScriptRoot "Test-RakazoPersonalRecoveryPoint.ps1") -RecoveryPointDirectory $point
-            Write-Host "Restore replaces the personal database and bot files after making a safety backup." -ForegroundColor Yellow
-            $confirmation = Read-Host "Type RESTORE rakazo-personal to continue"
-            & (Join-Path $PSScriptRoot "Restore-RakazoPersonal.ps1") -RecoveryPointDirectory $point -ConfirmationPhrase $confirmation
+            Write-Host "Restore will preview the target and make a safety backup before asking for final confirmation." -ForegroundColor Yellow
+            & (Join-Path $PSScriptRoot "Restore-RakazoPersonal.ps1") -RecoveryPointDirectory $point
         }
     }
     Write-Host "`n$Action finished."

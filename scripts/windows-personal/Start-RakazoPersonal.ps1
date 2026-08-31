@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Starts and health-checks only the configured rakazo-personal deployment.
+.DESCRIPTION
+Requires an active verified image manifest, starts the exact Compose project, and throws if image
+identity or web/API health checks fail. It does not target ports 5200 or 5300.
+.EXAMPLE
+.\scripts\windows-personal\Start-RakazoPersonal.ps1
+#>
 [CmdletBinding()]
 param(
     [string]$DockerContext = "desktop-linux",
@@ -10,10 +19,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "RakazoPersonal.Common.ps1")
 
-$contextArgs = @{ DockerContext = $DockerContext }
-if ($DeploymentRoot) { $contextArgs.DeploymentRoot = $DeploymentRoot }
-if ($RecoveryRoot) { $contextArgs.RecoveryRoot = $RecoveryRoot }
-$context = Get-RakazoPersonalContext @contextArgs
+$context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 [void](Assert-RakazoPersonalInitialized $context)
 if (-not (Test-Path -LiteralPath $context.CurrentImageSetFile -PathType Leaf)) {
     throw "No tested personal image set is active. Run Update-RakazoPersonal.ps1 first."

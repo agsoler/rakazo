@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Rolls rakazo-personal back through the guarded restore command.
+.DESCRIPTION
+Delegates to the same verified, safety-backed destructive restore path and requires the exact
+confirmation phrase. It never targets the development or release projects.
+.EXAMPLE
+.\scripts\windows-personal\Rollback-RakazoPersonal.ps1 -RecoveryPointDirectory '<recovery-point>' -ConfirmationPhrase 'RESTORE rakazo-personal'
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$RecoveryPointDirectory,

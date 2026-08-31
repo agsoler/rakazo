@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Retrieves one encrypted personal recovery point from configured Restic storage.
+.DESCRIPTION
+Restores into a new absolute directory and verifies the result. It does not alter rakazo-personal
+containers or volumes and throws if the destination already exists or verification fails.
+.EXAMPLE
+.\scripts\windows-personal\Get-RakazoPersonalRecoveryPoint.ps1 -Latest -DestinationDirectory '<new-directory>'
+#>
 [CmdletBinding(DefaultParameterSetName = "Latest")]
 param(
     [Parameter(ParameterSetName = "Snapshot", Mandatory)][string]$SnapshotId,
@@ -12,10 +21,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "RakazoPersonal.Common.ps1")
 
-$contextArgs = @{ DockerContext = $DockerContext }
-if ($DeploymentRoot) { $contextArgs.DeploymentRoot = $DeploymentRoot }
-if ($RecoveryRoot) { $contextArgs.RecoveryRoot = $RecoveryRoot }
-$context = Get-RakazoPersonalContext @contextArgs
+$context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 $config = Assert-RakazoPersonalInitialized $context
 if (-not [IO.Path]::IsPathRooted($DestinationDirectory)) { throw "DestinationDirectory must be absolute." }
 $destination = Get-RakazoFullPath $DestinationDirectory
@@ -40,4 +46,9 @@ finally {
 }
 $recoveredRoot = Join-Path $destination (Split-Path -Leaf $context.RecoveryRoot)
 if (-not (Test-Path -LiteralPath $recoveredRoot -PathType Container)) { throw "Restic restore completed without the expected personal recovery root." }
+$recoveredPoints = @(Get-ChildItem -LiteralPath (Join-Path $recoveredRoot "recovery-points") -Directory -ErrorAction SilentlyContinue | Where-Object Name -notlike ".*.incomplete")
+if (-not $recoveredPoints.Count) { throw "Retrieved material contains no complete personal recovery points." }
+foreach ($point in $recoveredPoints) {
+    & (Join-Path $PSScriptRoot "Test-RakazoPersonalRecoveryPoint.ps1") -RecoveryPointDirectory $point.FullName | Out-Null
+}
 Write-Host "Encrypted recovery material retrieved to: $recoveredRoot"

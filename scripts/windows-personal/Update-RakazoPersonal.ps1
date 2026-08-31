@@ -1,9 +1,18 @@
+<#
+.SYNOPSIS
+Builds, smoke-tests, backs up, and deploys the latest pushed personal-stable images.
+.DESCRIPTION
+Targets only rakazo-personal. It refuses unverified images or a failed pre-update backup, performs
+no automatic destructive rollback, and throws when deployment health verification fails.
+.EXAMPLE
+.\scripts\windows-personal\Update-RakazoPersonal.ps1
+#>
 [CmdletBinding()]
 param(
     [string]$DockerContext = "desktop-linux",
     [string]$DeploymentRoot,
     [string]$RecoveryRoot,
-    [string]$IntegrationRef = "origin/integration/rakazo-dev",
+    [ValidateSet("origin/integration/rakazo-dev")][string]$IntegrationRef = "origin/integration/rakazo-dev",
     [switch]$SkipFetch
 )
 
@@ -11,10 +20,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "RakazoPersonal.Common.ps1")
 
-$contextArgs = @{ DockerContext = $DockerContext }
-if ($DeploymentRoot) { $contextArgs.DeploymentRoot = $DeploymentRoot }
-if ($RecoveryRoot) { $contextArgs.RecoveryRoot = $RecoveryRoot }
-$context = Get-RakazoPersonalContext @contextArgs
+$context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 [void](Assert-RakazoPersonalInitialized $context)
 
 & (Join-Path $PSScriptRoot "Test-RakazoPersonalPrerequisites.ps1") -DockerContext $DockerContext

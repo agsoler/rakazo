@@ -17,6 +17,11 @@ The default local recovery area is `.local/recovery/personal`. Configure an encr
 repository and a separately protected password file when off-machine storage is ready. Never put
 the password or a private storage path in a tracked file.
 
+For a NAS that backs up several applications, prefer an application-owned location such as
+`\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic`. This scales more clearly than placing
+Rakazo beneath a generic Docker folder: the repository contains Rakazo recovery material regardless
+of which container runtime restores it.
+
 ```powershell
 .\scripts\windows-personal\Initialize-RakazoPersonalReplication.ps1 `
   -Repository "<absolute-private-backup-path>" `

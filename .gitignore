@@ -15,6 +15,7 @@ data
 apps/**/data
 .tmp
 .local/
+.pnpm-store/
 .DS_Store
 apps/web/dist
 apps/desktop/dist

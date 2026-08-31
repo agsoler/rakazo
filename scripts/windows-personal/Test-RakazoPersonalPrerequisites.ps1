@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Checks the host prerequisites for rakazo-personal operations.
+.DESCRIPTION
+Performs read-only version, Docker, Compose, Ollama, and optional Restic checks. Returns a non-zero
+exit code when a required dependency is missing; use -AsJson for machine-readable output.
+.EXAMPLE
+.\scripts\windows-personal\Test-RakazoPersonalPrerequisites.ps1 -RequireRestic
+#>
 [CmdletBinding()]
 param(
     [string]$DockerContext = "desktop-linux",

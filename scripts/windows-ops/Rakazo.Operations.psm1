@@ -37,6 +37,23 @@ function Assert-RakazoSafeChildPath {
     }
 }
 
+function Resolve-RakazoContainedPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaseDirectory,
+        [Parameter(Mandatory)][string]$RelativePath,
+        [Parameter(Mandatory)][string]$AllowedRoot,
+        [string]$Description = "referenced file"
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RelativePath) -or [IO.Path]::IsPathRooted($RelativePath)) {
+        throw "The $Description path must be relative."
+    }
+    $candidate = Get-RakazoFullPath (Join-Path $BaseDirectory $RelativePath)
+    Assert-RakazoSafeChildPath -Path $candidate -AllowedRoot $AllowedRoot -Description $Description
+    return $candidate
+}
+
 function New-RakazoHexSecret {
     [CmdletBinding()]
     param([ValidateRange(16, 128)][int]$Bytes = 32)
@@ -206,6 +223,24 @@ function Test-RakazoChecksums {
         $verified.Add($name)
     }
     return @($verified)
+}
+
+function Assert-RakazoRequiredChecksums {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Directory,
+        [Parameter(Mandatory)][string[]]$RequiredPaths,
+        [string]$FileName = "checksums.sha256"
+    )
+
+    $verified = @(Test-RakazoChecksums -Directory $Directory -FileName $FileName)
+    foreach ($requiredPath in $RequiredPaths) {
+        $normalized = $requiredPath.Replace('\', '/')
+        if ($normalized -notin $verified) {
+            throw "Required file is not covered by ${FileName}: $requiredPath"
+        }
+    }
+    return $verified
 }
 
 function Invoke-RakazoNativeCommand {
@@ -407,6 +442,129 @@ function New-RakazoImageSetManifest {
     }
 }
 
+function Assert-RakazoImageSetManifest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Manifest,
+        [string]$ExpectedImageSetId = ""
+    )
+
+    if ($Manifest.schemaVersion -ne 1 -or $Manifest.kind -ne "rakazo-image-set") {
+        throw "Unsupported image-set manifest."
+    }
+    $images = @($Manifest.images)
+    if ($images.Count -eq 0) { throw "Image-set manifest contains no images." }
+    $references = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $records = foreach ($image in $images) {
+        $reference = [string]$image.reference
+        $id = [string]$image.id
+        if ([string]::IsNullOrWhiteSpace($reference) -or $id -notmatch '^sha256:[0-9a-f]{64}$') {
+            throw "Image-set manifest contains an invalid reference or image ID."
+        }
+        if (-not $references.Add($reference)) { throw "Image-set manifest contains a duplicate reference: $reference" }
+        [ordered]@{
+            reference = $reference
+            id = $id
+            repoDigests = @($image.repoDigests)
+            architecture = [string]$image.architecture
+            os = [string]$image.os
+        }
+    }
+    $recomputed = New-RakazoImageSetManifest -Images @($records) -SourceCommit "verification"
+    if ([string]$Manifest.imageSetId -ne [string]$recomputed.imageSetId) {
+        throw "Image-set identity does not match its recorded images."
+    }
+    if ($ExpectedImageSetId -and [string]$Manifest.imageSetId -ne $ExpectedImageSetId) {
+        throw "Image-set identity does not match the recovery point."
+    }
+    if ($Manifest.PSObject.Properties.Name -contains "roles") {
+        foreach ($property in $Manifest.roles.PSObject.Properties) {
+            if ([string]$property.Value -notin $references) {
+                throw "Image-set role '$($property.Name)' references an image outside the set."
+            }
+        }
+    }
+    return $Manifest
+}
+
+function Test-RakazoImageArchiveDirectory {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Directory,
+        [Parameter(Mandatory)][string]$ExpectedImageSetId
+    )
+
+    $root = (Resolve-Path -LiteralPath $Directory).Path
+    $required = @("image-set.json", "archive.json", "rakazo-images.tar")
+    foreach ($name in $required) {
+        if (-not (Test-Path -LiteralPath (Join-Path $root $name) -PathType Leaf)) {
+            throw "Incomplete image archive. Missing: $name"
+        }
+    }
+    [void](Assert-RakazoRequiredChecksums -Directory $root -RequiredPaths $required)
+    $imageSet = Get-Content -Raw -LiteralPath (Join-Path $root "image-set.json") | ConvertFrom-Json
+    [void](Assert-RakazoImageSetManifest -Manifest $imageSet -ExpectedImageSetId $ExpectedImageSetId)
+    $metadata = Get-Content -Raw -LiteralPath (Join-Path $root "archive.json") | ConvertFrom-Json
+    if ($metadata.schemaVersion -ne 1 -or $metadata.kind -ne "rakazo-image-archive" -or
+        [string]$metadata.imageSetId -ne $ExpectedImageSetId -or [string]$metadata.file -ne "rakazo-images.tar") {
+        throw "Unsupported or mismatched image archive metadata."
+    }
+    $archive = Resolve-RakazoContainedPath -BaseDirectory $root -RelativePath ([string]$metadata.file) -AllowedRoot $root -Description "image archive"
+    if ((Get-RakazoFileSha256 $archive) -ne [string]$metadata.sha256 -or
+        (Get-Item -LiteralPath $archive).Length -ne [long]$metadata.size) {
+        throw "Image archive hash or size does not match its metadata."
+    }
+    return [pscustomobject]@{ Directory = $root; ImageSet = $imageSet; Metadata = $metadata; Archive = $archive }
+}
+
+function Import-RakazoImageSetArchive {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$DockerContext,
+        [Parameter(Mandatory)]$ImageSet,
+        [Parameter(Mandatory)][string]$ArchivePath
+    )
+
+    [void](Assert-RakazoImageSetManifest -Manifest $ImageSet)
+    Invoke-RakazoDocker -DockerContext $DockerContext -Arguments @("load", "--input", $ArchivePath) -Quiet | Out-Null
+    foreach ($image in @($ImageSet.images)) {
+        $actual = Get-RakazoImageRecord -DockerContext $DockerContext -Reference ([string]$image.reference)
+        if ($actual.id -ne [string]$image.id) {
+            throw "Loaded image does not match the image-set manifest: $($image.reference)"
+        }
+    }
+}
+
+function Test-RakazoVolumeOwnership {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Volume,
+        [Parameter(Mandatory)][string]$ExpectedProject,
+        [Parameter(Mandatory)][string]$ExpectedVolume
+    )
+
+    $labels = $Volume.Labels
+    return [bool]($labels -and
+        [string]$labels.'com.docker.compose.project' -eq $ExpectedProject -and
+        [string]$labels.'com.docker.compose.volume' -eq $ExpectedVolume)
+}
+
+function Assert-RakazoDockerVolumeOwnership {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$DockerContext,
+        [Parameter(Mandatory)][string]$VolumeName,
+        [Parameter(Mandatory)][string]$ExpectedProject,
+        [Parameter(Mandatory)][string]$ExpectedVolume
+    )
+
+    $volume = (Get-RakazoDockerOutput -DockerContext $DockerContext -Arguments @("volume", "inspect", $VolumeName) | ConvertFrom-Json)[0]
+    if (-not (Test-RakazoVolumeOwnership -Volume $volume -ExpectedProject $ExpectedProject -ExpectedVolume $ExpectedVolume)) {
+        throw "Docker volume is not owned by the expected Compose project: $VolumeName"
+    }
+    return $volume
+}
+
 function Wait-RakazoHttp {
     [CmdletBinding()]
     param(
@@ -471,6 +629,9 @@ function Complete-RakazoAtomicDirectory {
 }
 
 Export-ModuleMember -Function @(
+    "Assert-RakazoDockerVolumeOwnership",
+    "Assert-RakazoImageSetManifest",
+    "Assert-RakazoRequiredChecksums",
     "Assert-RakazoSafeChildPath",
     "Complete-RakazoAtomicDirectory",
     "Get-RakazoDockerOutput",
@@ -480,6 +641,7 @@ Export-ModuleMember -Function @(
     "Get-RakazoOwnedBotContainerIds",
     "Get-RakazoStringSha256",
     "Get-RakazoVolumeMountpoint",
+    "Import-RakazoImageSetArchive",
     "Invoke-RakazoDocker",
     "Invoke-RakazoNativeCommand",
     "Invoke-RakazoNativeToFile",
@@ -488,9 +650,12 @@ Export-ModuleMember -Function @(
     "New-RakazoImageSetManifest",
     "Protect-RakazoPrivatePath",
     "Read-RakazoEnvFile",
+    "Resolve-RakazoContainedPath",
+    "Test-RakazoImageArchiveDirectory",
     "Test-RakazoBotOwnership",
     "Test-RakazoChecksums",
     "Test-RakazoPathWithin",
+    "Test-RakazoVolumeOwnership",
     "Wait-RakazoHttp",
     "Write-RakazoChecksums",
     "Write-RakazoEnvFile",

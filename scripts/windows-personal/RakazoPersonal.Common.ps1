@@ -35,6 +35,19 @@ function Get-RakazoPersonalContext {
     }
 }
 
+function Get-RakazoPersonalCommandContext {
+    param(
+        [string]$DockerContext = "desktop-linux",
+        [string]$DeploymentRoot = "",
+        [string]$RecoveryRoot = ""
+    )
+
+    $arguments = @{ DockerContext = $DockerContext }
+    if (-not [string]::IsNullOrWhiteSpace($DeploymentRoot)) { $arguments.DeploymentRoot = $DeploymentRoot }
+    if (-not [string]::IsNullOrWhiteSpace($RecoveryRoot)) { $arguments.RecoveryRoot = $RecoveryRoot }
+    return Get-RakazoPersonalContext @arguments
+}
+
 function Assert-RakazoPersonalInitialized {
     param([Parameter(Mandatory)]$Context)
 
@@ -89,16 +102,25 @@ function Set-RakazoPersonalImageSet {
     if ($manifest.kind -ne "rakazo-image-set" -or @($manifest.images).Count -lt 2) {
         throw "Unsupported personal image-set manifest: $ManifestPath"
     }
-    $app = @($manifest.images | Where-Object { $_.reference -like "rakazo-personal/app:*" })
-    $computer = @($manifest.images | Where-Object { $_.reference -like "rakazo-personal/computer:*" })
-    if ($app.Count -ne 1 -or $computer.Count -ne 1) {
-        throw "The image set must contain exactly one personal app and one personal computer image."
+    [void](Assert-RakazoImageSetManifest -Manifest $manifest)
+    $references = @($manifest.images | ForEach-Object { [string]$_.reference })
+    $legacyApps = @($manifest.images | Where-Object { $_.reference -like "rakazo-personal/app:*" })
+    $legacyComputers = @($manifest.images | Where-Object { $_.reference -like "rakazo-personal/computer:*" })
+    $appReference = if ($manifest.PSObject.Properties.Name -contains "roles") { [string]$manifest.roles.app } elseif ($legacyApps.Count -eq 1) { [string]$legacyApps[0].reference } else { "" }
+    $computerReference = if ($manifest.PSObject.Properties.Name -contains "roles") { [string]$manifest.roles.computer } elseif ($legacyComputers.Count -eq 1) { [string]$legacyComputers[0].reference } else { "" }
+    foreach ($reference in @($appReference, $computerReference)) {
+        if ([string]::IsNullOrWhiteSpace($reference) -or $reference -notin $references -or $reference -match '@sha256:') {
+            throw "The image set must identify tagged app and computer image roles."
+        }
     }
+    $appSeparator = $appReference.LastIndexOf(':')
+    $computerSeparator = $computerReference.LastIndexOf(':')
+    if ($appSeparator -le $appReference.LastIndexOf('/') -or $computerSeparator -le $computerReference.LastIndexOf('/')) { throw "App and computer image roles must include tags." }
     $values = Read-RakazoEnvFile $Context.EnvFile
-    $values.RAKAZO_IMAGE = "rakazo-personal/app"
-    $values.RAKAZO_IMAGE_TAG = ([string]$app[0].reference).Substring("rakazo-personal/app:".Length)
-    $values.RAKAZO_COMPUTER_IMAGE = "rakazo-personal/computer"
-    $values.RAKAZO_COMPUTER_IMAGE_TAG = ([string]$computer[0].reference).Substring("rakazo-personal/computer:".Length)
+    $values.RAKAZO_IMAGE = $appReference.Substring(0, $appSeparator)
+    $values.RAKAZO_IMAGE_TAG = $appReference.Substring($appSeparator + 1)
+    $values.RAKAZO_COMPUTER_IMAGE = $computerReference.Substring(0, $computerSeparator)
+    $values.RAKAZO_COMPUTER_IMAGE_TAG = $computerReference.Substring($computerSeparator + 1)
     Write-RakazoEnvFile -Values $values -Path $Context.EnvFile
     Copy-Item -LiteralPath $ManifestPath -Destination $Context.CurrentImageSetFile -Force
     Protect-RakazoPrivatePath $Context.EnvFile

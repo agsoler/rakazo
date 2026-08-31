@@ -432,6 +432,7 @@ git push origin main</code></pre>
 .\scripts\windows-personal\Sync-RakazoPersonalBackups.ps1</code></pre>
             </div>
             <p>Every backup saves state. The exact image archive is saved only when the image-set identity changes. If encrypted off-machine storage is asleep, the local backup succeeds and Sync retries later.</p>
+            <p>On a shared NAS, give Rakazo an application-owned encrypted repository such as <code>\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic</code>. It stores recovery material; it is not a live Docker folder.</p>
           </div>
         </section>
 

@@ -1,8 +1,17 @@
+<#
+.SYNOPSIS
+Creates a verified state-and-image recovery point for an image-based release deployment.
+.DESCRIPTION
+Targets only the explicit Compose project and deployment paths. It briefly quiesces release-owned
+services, never overwrites completed recovery points, and throws on ownership or backup failure.
+.EXAMPLE
+.\scripts\windows-release\Backup-RakazoRelease.ps1 -DeploymentRoot '<deployment>' -BackupRoot '<backup-root>'
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$DeploymentRoot,
     [Parameter(Mandatory)][string]$BackupRoot,
-    [string]$Project = "rakazo",
+    [ValidateSet("rakazo")][string]$Project = "rakazo",
     [string]$DockerContext = "desktop-linux"
 )
 
@@ -27,25 +36,43 @@ $refs = @($refsText -split '\r?\n' | Where-Object { $_ } | Sort-Object -Unique)
 if (-not $refs.Count) { throw "Compose produced no release image references." }
 $images = @($refs | ForEach-Object { Get-RakazoImageRecord -DockerContext $DockerContext -Reference $_ })
 $imageSet = New-RakazoImageSetManifest -Images $images -SourceCommit "published-image"
+$releaseEnvironment = Read-RakazoEnvFile $envFile
+$imageSet["roles"] = [ordered]@{
+    app = "$($releaseEnvironment.RAKAZO_IMAGE):$($releaseEnvironment.RAKAZO_IMAGE_TAG)"
+    computer = "$($releaseEnvironment.RAKAZO_COMPUTER_IMAGE):$($releaseEnvironment.RAKAZO_COMPUTER_IMAGE_TAG)"
+}
 $imageSetDirectory = Join-Path $imageRoot $imageSet.imageSetId
-New-Item -ItemType Directory -Force -Path $imageSetDirectory | Out-Null
 $imageSetPath = Join-Path $imageSetDirectory "image-set.json"
 $archivePath = Join-Path $imageSetDirectory "rakazo-images.tar"
 $archiveCreated = $false
-Write-RakazoJsonFile -Value $imageSet -Path $imageSetPath
-if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
-    $incomplete = "$archivePath.incomplete"
-    Invoke-RakazoNativeToFile -FilePath "docker" -ArgumentList (@("--context", $DockerContext, "save") + $refs) -OutputPath $incomplete
-    Move-Item -LiteralPath $incomplete -Destination $archivePath
-    $archiveCreated = $true
+if (Test-Path -LiteralPath $imageSetDirectory -PathType Container) {
+    $archiveSet = Test-RakazoImageArchiveDirectory -Directory $imageSetDirectory -ExpectedImageSetId ([string]$imageSet.imageSetId)
+    $archiveMetadata = $archiveSet.Metadata
 }
-$archiveMetadata = [ordered]@{ schemaVersion = 1; kind = "rakazo-image-archive"; imageSetId = $imageSet.imageSetId; file = "rakazo-images.tar"; sha256 = Get-RakazoFileSha256 $archivePath; size = (Get-Item $archivePath).Length }
-Write-RakazoJsonFile -Value $archiveMetadata -Path (Join-Path $imageSetDirectory "archive.json")
-Write-RakazoChecksums -Directory $imageSetDirectory -RelativePaths @("image-set.json", "archive.json", "rakazo-images.tar")
+else {
+    $imageSetPaths = New-RakazoAtomicDirectory -Root $imageRoot -Name ([string]$imageSet.imageSetId)
+    try {
+        Write-RakazoJsonFile -Value $imageSet -Path (Join-Path $imageSetPaths.Incomplete "image-set.json")
+        $incompleteArchive = Join-Path $imageSetPaths.Incomplete "rakazo-images.tar"
+        Invoke-RakazoNativeToFile -FilePath "docker" -ArgumentList (@("--context", $DockerContext, "save") + $refs) -OutputPath $incompleteArchive
+        $archiveMetadata = [ordered]@{ schemaVersion = 1; kind = "rakazo-image-archive"; imageSetId = $imageSet.imageSetId; file = "rakazo-images.tar"; sha256 = Get-RakazoFileSha256 $incompleteArchive; size = (Get-Item $incompleteArchive).Length }
+        Write-RakazoJsonFile -Value $archiveMetadata -Path (Join-Path $imageSetPaths.Incomplete "archive.json")
+        Write-RakazoChecksums -Directory $imageSetPaths.Incomplete -RelativePaths @("image-set.json", "archive.json", "rakazo-images.tar")
+        Complete-RakazoAtomicDirectory -IncompletePath $imageSetPaths.Incomplete -FinalPath $imageSetPaths.Final -AllowedRoot $imageRoot
+        $archiveCreated = $true
+    }
+    catch {
+        Write-Warning "Incomplete release image archive retained for inspection: $($imageSetPaths.Incomplete)"
+        throw
+    }
+}
 
 $pointName = "rakazo-release-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 $paths = New-RakazoAtomicDirectory -Root $pointRoot -Name $pointName
 $appDataVolume = "${Project}_appdata"
+[void](Assert-RakazoDockerVolumeOwnership -DockerContext $DockerContext -VolumeName $appDataVolume -ExpectedProject $Project -ExpectedVolume "appdata")
+$postgresVolume = "${Project}_pgdata"
+[void](Assert-RakazoDockerVolumeOwnership -DockerContext $DockerContext -VolumeName $postgresVolume -ExpectedProject $Project -ExpectedVolume "pgdata")
 $appDataRoot = Get-RakazoVolumeMountpoint -DockerContext $DockerContext -VolumeName $appDataVolume
 $bots = @(Get-RakazoOwnedBotContainerIds -DockerContext $DockerContext -ExpectedAppDataRoot $appDataRoot -ExpectedProject $Project -RunningOnly)
 $wasRunning = -not [string]::IsNullOrWhiteSpace((Get-RakazoDockerOutput -DockerContext $DockerContext -Arguments ($composeArgs + @("ps", "-q"))))

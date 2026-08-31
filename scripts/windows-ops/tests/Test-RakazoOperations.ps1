@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $modulePath = Join-Path $PSScriptRoot "..\Rakazo.Operations.psm1"
 Import-Module $modulePath -Force
+. (Join-Path $PSScriptRoot "..\..\windows-personal\RakazoPersonal.Common.ps1")
 
 $script:Passed = 0
 $script:Failed = 0
@@ -72,6 +73,7 @@ try {
         Assert-False (Test-RakazoPathWithin -Path $root -Root $root)
         Assert-False (Test-RakazoPathWithin -Path (Join-Path $testRoot "root-other") -Root $root)
         Assert-Throws { Assert-RakazoSafeChildPath -Path (Join-Path $root "..\escape") -AllowedRoot $root }
+        Assert-Throws { Resolve-RakazoContainedPath -BaseDirectory (Join-Path $root "child") -RelativePath "..\..\escape.tar" -AllowedRoot $root }
     }
 
     Invoke-Test "environment files round-trip fake values without emitting them" {
@@ -91,21 +93,52 @@ try {
         Write-RakazoChecksums -Directory $directory -RelativePaths @("a.txt")
         $verified = @(Test-RakazoChecksums -Directory $directory)
         Assert-Equal 1 $verified.Count
+        Assert-Throws { Assert-RakazoRequiredChecksums -Directory $directory -RequiredPaths @("a.txt", "missing.txt") }
         "tampered" | Set-Content -LiteralPath (Join-Path $directory "a.txt")
         Assert-Throws { Test-RakazoChecksums -Directory $directory }
     }
 
     Invoke-Test "image-set IDs are stable and change with an image ID" {
         $images = @(
-            [ordered]@{ reference = "example/app:sha-a"; id = "sha256:1"; repoDigests = @(); architecture = "amd64"; os = "linux" },
-            [ordered]@{ reference = "example/computer:sha-a"; id = "sha256:2"; repoDigests = @(); architecture = "amd64"; os = "linux" }
+            [ordered]@{ reference = "example/app:sha-a"; id = "sha256:$('1' * 64)"; repoDigests = @(); architecture = "amd64"; os = "linux" },
+            [ordered]@{ reference = "example/computer:sha-a"; id = "sha256:$('2' * 64)"; repoDigests = @(); architecture = "amd64"; os = "linux" }
         )
         $first = New-RakazoImageSetManifest -Images $images -SourceCommit ("a" * 40)
         $second = New-RakazoImageSetManifest -Images @($images[1], $images[0]) -SourceCommit ("a" * 40)
         Assert-Equal $first.imageSetId $second.imageSetId
-        $changed = @($images[0], [ordered]@{ reference = "example/computer:sha-a"; id = "sha256:3"; repoDigests = @(); architecture = "amd64"; os = "linux" })
+        [void](Assert-RakazoImageSetManifest -Manifest ([pscustomobject]$first))
+        $changed = @($images[0], [ordered]@{ reference = "example/computer:sha-a"; id = "sha256:$('3' * 64)"; repoDigests = @(); architecture = "amd64"; os = "linux" })
         $third = New-RakazoImageSetManifest -Images $changed -SourceCommit ("a" * 40)
         Assert-False ($first.imageSetId -eq $third.imageSetId) "Image-set ID did not change"
+        $tampered = [pscustomobject]($first | ConvertTo-Json -Depth 10 | ConvertFrom-Json)
+        $tampered.images[0].id = "sha256:$('4' * 64)"
+        Assert-Throws { Assert-RakazoImageSetManifest -Manifest $tampered }
+    }
+
+    Invoke-Test "personal image activation accepts role-labelled official or custom tags" {
+        $directory = Join-Path $testRoot "image-activation"
+        New-Item -ItemType Directory -Path $directory | Out-Null
+        $envPath = Join-Path $directory ".env"
+        $currentPath = Join-Path $directory "current-image-set.json"
+        Write-RakazoEnvFile -Values ([ordered]@{
+            RAKAZO_IMAGE = "placeholder/app"; RAKAZO_IMAGE_TAG = "old"
+            RAKAZO_COMPUTER_IMAGE = "placeholder/computer"; RAKAZO_COMPUTER_IMAGE_TAG = "old"
+        }) -Path $envPath
+        $images = @(
+            [ordered]@{ reference = "registry.example/official/app:release-1"; id = "sha256:$('5' * 64)"; repoDigests = @(); architecture = "amd64"; os = "linux" },
+            [ordered]@{ reference = "registry.example/official/computer:release-1"; id = "sha256:$('6' * 64)"; repoDigests = @(); architecture = "amd64"; os = "linux" }
+        )
+        $manifest = New-RakazoImageSetManifest -Images $images -SourceCommit "published-image"
+        $manifest["roles"] = [ordered]@{ app = $images[0].reference; computer = $images[1].reference }
+        $manifestPath = Join-Path $directory "official-image-set.json"
+        Write-RakazoJsonFile -Value $manifest -Path $manifestPath
+        $context = [pscustomobject]@{ EnvFile = $envPath; CurrentImageSetFile = $currentPath }
+        Set-RakazoPersonalImageSet -Context $context -ManifestPath $manifestPath
+        $values = Read-RakazoEnvFile $envPath
+        Assert-Equal "registry.example/official/app" $values.RAKAZO_IMAGE
+        Assert-Equal "release-1" $values.RAKAZO_IMAGE_TAG
+        Assert-Equal "registry.example/official/computer" $values.RAKAZO_COMPUTER_IMAGE
+        Assert-Equal "release-1" $values.RAKAZO_COMPUTER_IMAGE_TAG
     }
 
     Invoke-Test "bot ownership accepts only managed homes beneath the requested appdata root" {
@@ -124,6 +157,14 @@ try {
         Assert-False (Test-RakazoBotOwnership -Container $wrongDestination -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
     }
 
+    Invoke-Test "volume ownership requires exact Compose project and logical volume labels" {
+        $owned = [pscustomobject]@{ Labels = [pscustomobject]@{ 'com.docker.compose.project' = 'rakazo'; 'com.docker.compose.volume' = 'appdata' } }
+        Assert-True (Test-RakazoVolumeOwnership -Volume $owned -ExpectedProject "rakazo" -ExpectedVolume "appdata")
+        Assert-False (Test-RakazoVolumeOwnership -Volume $owned -ExpectedProject "rakazo-dev" -ExpectedVolume "appdata")
+        Assert-False (Test-RakazoVolumeOwnership -Volume $owned -ExpectedProject "rakazo" -ExpectedVolume "pgdata")
+        Assert-False (Test-RakazoVolumeOwnership -Volume ([pscustomobject]@{ Labels = $null }) -ExpectedProject "rakazo" -ExpectedVolume "appdata")
+    }
+
     Invoke-Test "atomic recovery points publish only after explicit completion" {
         $root = Join-Path $testRoot "atomic"
         $paths = New-RakazoAtomicDirectory -Root $root -Name "point-001"
@@ -138,22 +179,57 @@ try {
     Invoke-Test "personal recovery verification links state to an exact external image archive" {
         $fixtureRoot = Join-Path $testRoot "personal-recovery"
         $point = Join-Path $fixtureRoot "recovery-points\point-one"
-        $imageDirectory = Join-Path $fixtureRoot "image-sets\sha256-fixture"
+        $images = @(
+            [ordered]@{ reference = "example/app:sha-fixture"; id = "sha256:$('a' * 64)"; repoDigests = @(); architecture = "amd64"; os = "linux" },
+            [ordered]@{ reference = "example/computer:sha-fixture"; id = "sha256:$('b' * 64)"; repoDigests = @(); architecture = "amd64"; os = "linux" }
+        )
+        $imageSet = New-RakazoImageSetManifest -Images $images -SourceCommit ("c" * 40)
+        $imageDirectory = Join-Path $fixtureRoot "image-sets\$($imageSet.imageSetId)"
         New-Item -ItemType Directory -Force -Path $point, $imageDirectory | Out-Null
-        "fake image archive" | Set-Content -LiteralPath (Join-Path $imageDirectory "rakazo-images.tar")
-        $imageSet = [ordered]@{ schemaVersion = 1; kind = "rakazo-image-set"; imageSetId = "sha256-fixture"; source = [ordered]@{ commit = "fixture" }; images = @() }
+        $archivePath = Join-Path $imageDirectory "rakazo-images.tar"
+        "fake image archive" | Set-Content -LiteralPath $archivePath
+        Write-RakazoJsonFile -Value $imageSet -Path (Join-Path $imageDirectory "image-set.json")
+        $archiveMetadata = [ordered]@{ schemaVersion = 1; kind = "rakazo-image-archive"; imageSetId = $imageSet.imageSetId; file = "rakazo-images.tar"; sha256 = Get-RakazoFileSha256 $archivePath; size = (Get-Item $archivePath).Length }
+        Write-RakazoJsonFile -Value $archiveMetadata -Path (Join-Path $imageDirectory "archive.json")
+        Write-RakazoChecksums -Directory $imageDirectory -RelativePaths @("image-set.json", "archive.json", "rakazo-images.tar")
         Write-RakazoJsonFile -Value $imageSet -Path (Join-Path $point "image-set.json")
-        foreach ($name in @("rakazo.pgdump", "rakazo-appdata.tar.gz", ".env", "docker-compose.images.yml", "RECOVERY.txt")) { "fixture $name" | Set-Content -LiteralPath (Join-Path $point $name) }
+        foreach ($name in @("rakazo.pgdump", "rakazo-appdata.tar.gz", "docker-compose.images.yml", "RECOVERY.txt")) { "fixture $name" | Set-Content -LiteralPath (Join-Path $point $name) }
+        Write-RakazoEnvFile -Values ([ordered]@{ RAKAZO_IMAGE = "example/app"; RAKAZO_IMAGE_TAG = "sha-fixture"; RAKAZO_COMPUTER_IMAGE = "example/computer"; RAKAZO_COMPUTER_IMAGE_TAG = "sha-fixture" }) -Path (Join-Path $point ".env")
         $manifest = [ordered]@{
             schemaVersion = 1; kind = "rakazo-personal-recovery-point"; project = "rakazo-personal"; createdAt = [DateTime]::UtcNow.ToString("o")
-            source = [ordered]@{ commit = "fixture" }; imageSetId = "sha256-fixture"
-            imageArchive = [ordered]@{ relativePath = "../../image-sets/sha256-fixture/rakazo-images.tar"; sha256 = Get-RakazoFileSha256 (Join-Path $imageDirectory "rakazo-images.tar") }
+            source = [ordered]@{ commit = "fixture" }; imageSetId = $imageSet.imageSetId
+            imageArchive = [ordered]@{ relativePath = "../../image-sets/$($imageSet.imageSetId)/rakazo-images.tar"; sha256 = $archiveMetadata.sha256; size = $archiveMetadata.size }
         }
         Write-RakazoJsonFile -Value $manifest -Path (Join-Path $point "recovery-point.json")
         Write-RakazoChecksums -Directory $point -RelativePaths @("rakazo.pgdump", "rakazo-appdata.tar.gz", ".env", "docker-compose.images.yml", "image-set.json", "recovery-point.json", "RECOVERY.txt")
         $verifier = Join-Path $PSScriptRoot "..\..\windows-personal\Test-RakazoPersonalRecoveryPoint.ps1"
         $verified = & $verifier -RecoveryPointDirectory $point -AsObject
-        Assert-Equal "sha256-fixture" $verified.Manifest.imageSetId
+        Assert-Equal $imageSet.imageSetId $verified.Manifest.imageSetId
+
+        $deployment = Join-Path $fixtureRoot "deployment"
+        New-Item -ItemType Directory -Path $deployment | Out-Null
+        Copy-Item -LiteralPath (Join-Path $point ".env") -Destination (Join-Path $deployment ".env")
+        Copy-Item -LiteralPath (Join-Path $point "docker-compose.images.yml") -Destination (Join-Path $deployment "docker-compose.images.yml")
+        Write-RakazoJsonFile -Value ([ordered]@{
+            schemaVersion = 1; kind = "rakazo-personal-config"; project = "rakazo-personal"
+            deploymentRoot = $deployment; recoveryRoot = $fixtureRoot
+            nas = [ordered]@{ repository = ""; passwordFile = "" }
+        }) -Path (Join-Path $deployment "personal-config.json")
+        $sync = Join-Path $PSScriptRoot "..\..\windows-personal\Sync-RakazoPersonalBackups.ps1"
+        Assert-Throws { & $sync -DeploymentRoot $deployment -RecoveryRoot $fixtureRoot }
+        $replication = Get-Content -Raw -LiteralPath (Join-Path $deployment "replication-state.json") | ConvertFrom-Json
+        Assert-Equal "pending" $replication.status
+        Assert-Equal 1 @($replication.recoveryPoints).Count
+
+        $safeRelativePath = $manifest.imageArchive.relativePath
+        $manifest.imageArchive.relativePath = "../../../outside.tar"
+        Write-RakazoJsonFile -Value $manifest -Path (Join-Path $point "recovery-point.json")
+        Write-RakazoChecksums -Directory $point -RelativePaths @("rakazo.pgdump", "rakazo-appdata.tar.gz", ".env", "docker-compose.images.yml", "image-set.json", "recovery-point.json", "RECOVERY.txt")
+        Assert-Throws { & $verifier -RecoveryPointDirectory $point -AsObject }
+        $manifest.imageArchive.relativePath = $safeRelativePath
+        Write-RakazoJsonFile -Value $manifest -Path (Join-Path $point "recovery-point.json")
+        Write-RakazoChecksums -Directory $point -RelativePaths @("rakazo.pgdump", "rakazo-appdata.tar.gz", ".env", "docker-compose.images.yml", "image-set.json", "recovery-point.json", "RECOVERY.txt")
+
         "tampered" | Set-Content -LiteralPath (Join-Path $point "rakazo-appdata.tar.gz")
         Assert-Throws { & $verifier -RecoveryPointDirectory $point -AsObject }
     }

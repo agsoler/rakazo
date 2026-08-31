@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Creates a verified state recovery point for the rakazo-personal deployment.
+.DESCRIPTION
+Briefly quiesces only rakazo-personal, saves database and appdata state, and archives the exact
+image set when needed. Existing recovery points are never overwritten. Throws on failure.
+.EXAMPLE
+.\scripts\windows-personal\Backup-RakazoPersonal.ps1
+#>
 [CmdletBinding()]
 param(
     [string]$DockerContext = "desktop-linux",
@@ -10,16 +19,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "RakazoPersonal.Common.ps1")
 
-$contextArgs = @{ DockerContext = $DockerContext }
-if ($DeploymentRoot) { $contextArgs.DeploymentRoot = $DeploymentRoot }
-if ($RecoveryRoot) { $contextArgs.RecoveryRoot = $RecoveryRoot }
-$context = Get-RakazoPersonalContext @contextArgs
+$context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 $config = Assert-RakazoPersonalInitialized $context
 if (-not (Test-Path -LiteralPath $context.CurrentImageSetFile -PathType Leaf)) {
     throw "No deployed personal image set is recorded; there is no stable deployment to back up."
 }
 $imageSet = Get-Content -Raw -LiteralPath $context.CurrentImageSetFile | ConvertFrom-Json
-if ($imageSet.kind -ne "rakazo-image-set") { throw "Unsupported current image-set manifest." }
+[void](Assert-RakazoImageSetManifest -Manifest $imageSet)
 $imageRefs = @($imageSet.images | ForEach-Object { [string]$_.reference })
 foreach ($image in @($imageSet.images)) {
     $actual = Get-RakazoImageRecord -DockerContext $DockerContext -Reference $image.reference
@@ -29,35 +35,35 @@ foreach ($image in @($imageSet.images)) {
 New-Item -ItemType Directory -Force -Path $context.ImageSetRoot, $context.RecoveryPointRoot | Out-Null
 $imageSetDirectory = Join-Path $context.ImageSetRoot $imageSet.imageSetId
 $archivePath = Join-Path $imageSetDirectory "rakazo-images.tar"
-$archiveMetadataPath = Join-Path $imageSetDirectory "archive.json"
 $capturedImages = $false
-New-Item -ItemType Directory -Force -Path $imageSetDirectory | Out-Null
-Copy-Item -LiteralPath $context.CurrentImageSetFile -Destination (Join-Path $imageSetDirectory "image-set.json") -Force
-
-if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
-    $incompleteArchive = "$archivePath.incomplete"
-    if (Test-Path -LiteralPath $incompleteArchive) { throw "Incomplete image archive requires inspection: $incompleteArchive" }
+if (Test-Path -LiteralPath $imageSetDirectory -PathType Container) {
+    $archiveSet = Test-RakazoImageArchiveDirectory -Directory $imageSetDirectory -ExpectedImageSetId ([string]$imageSet.imageSetId)
+    $archiveMetadata = $archiveSet.Metadata
+}
+else {
+    $imageSetPaths = New-RakazoAtomicDirectory -Root $context.ImageSetRoot -Name ([string]$imageSet.imageSetId)
     try {
+        Copy-Item -LiteralPath $context.CurrentImageSetFile -Destination (Join-Path $imageSetPaths.Incomplete "image-set.json")
+        $incompleteArchive = Join-Path $imageSetPaths.Incomplete "rakazo-images.tar"
         Invoke-RakazoNativeToFile -FilePath "docker" -ArgumentList (@("--context", $DockerContext, "save") + $imageRefs) -OutputPath $incompleteArchive
-        Move-Item -LiteralPath $incompleteArchive -Destination $archivePath
+        $archiveMetadata = [ordered]@{
+            schemaVersion = 1
+            kind = "rakazo-image-archive"
+            imageSetId = [string]$imageSet.imageSetId
+            file = "rakazo-images.tar"
+            sha256 = Get-RakazoFileSha256 $incompleteArchive
+            size = (Get-Item -LiteralPath $incompleteArchive).Length
+        }
+        Write-RakazoJsonFile -Value $archiveMetadata -Path (Join-Path $imageSetPaths.Incomplete "archive.json")
+        Write-RakazoChecksums -Directory $imageSetPaths.Incomplete -RelativePaths @("image-set.json", "archive.json", "rakazo-images.tar")
+        Complete-RakazoAtomicDirectory -IncompletePath $imageSetPaths.Incomplete -FinalPath $imageSetPaths.Final -AllowedRoot $context.ImageSetRoot
         $capturedImages = $true
     }
     catch {
-        Remove-Item -LiteralPath $incompleteArchive -Force -ErrorAction SilentlyContinue
+        Write-Warning "Incomplete image archive retained for inspection: $($imageSetPaths.Incomplete)"
         throw
     }
 }
-$archiveMetadata = [ordered]@{
-    schemaVersion = 1
-    kind = "rakazo-image-archive"
-    imageSetId = [string]$imageSet.imageSetId
-    file = "rakazo-images.tar"
-    sha256 = Get-RakazoFileSha256 $archivePath
-    size = (Get-Item -LiteralPath $archivePath).Length
-    capturedThisRun = $capturedImages
-}
-Write-RakazoJsonFile -Value $archiveMetadata -Path $archiveMetadataPath
-Write-RakazoChecksums -Directory $imageSetDirectory -RelativePaths @("image-set.json", "archive.json", "rakazo-images.tar")
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $pointName = "rakazo-personal-$timestamp-$(([string]$imageSet.source.commit).Substring(0, 8))"
@@ -70,6 +76,8 @@ $stoppedBots = @()
 $complete = $false
 
 try {
+    [void](Assert-RakazoDockerVolumeOwnership -DockerContext $DockerContext -VolumeName $context.AppDataVolume -ExpectedProject $context.Project -ExpectedVolume "appdata")
+    [void](Assert-RakazoDockerVolumeOwnership -DockerContext $DockerContext -VolumeName $context.PostgresVolume -ExpectedProject $context.Project -ExpectedVolume "pgdata")
     $appDataRoot = Get-RakazoVolumeMountpoint -DockerContext $DockerContext -VolumeName $context.AppDataVolume
     $stoppedBots = @(Get-RakazoOwnedBotContainerIds -DockerContext $DockerContext -ExpectedAppDataRoot $appDataRoot -ExpectedProject $context.Project -RunningOnly)
     if ($stoppedBots.Count) {

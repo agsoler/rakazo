@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Installs Windows shortcuts for the personal stable operations.
+.DESCRIPTION
+Creates launchers only in the selected directory and only after
+-ConfirmShortcutInstallation is supplied. Existing same-name shortcuts may be replaced. Throws on failure.
+.EXAMPLE
+.\scripts\windows-personal\Install-RakazoPersonalShortcuts.ps1 -ConfirmShortcutInstallation
+#>
 [CmdletBinding()]
 param(
     [string]$DestinationDirectory = [Environment]::GetFolderPath("Desktop"),

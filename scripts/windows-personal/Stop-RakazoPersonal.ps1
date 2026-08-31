@@ -1,3 +1,12 @@
+<#
+.SYNOPSIS
+Stops only the rakazo-personal Compose project.
+.DESCRIPTION
+Preserves its volumes, images, configuration, and recovery points. Throws when the project cannot
+be addressed safely; it never targets the development or release projects.
+.EXAMPLE
+.\scripts\windows-personal\Stop-RakazoPersonal.ps1
+#>
 [CmdletBinding()]
 param(
     [string]$DockerContext = "desktop-linux",
@@ -9,10 +18,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "RakazoPersonal.Common.ps1")
 
-$contextArgs = @{ DockerContext = $DockerContext }
-if ($DeploymentRoot) { $contextArgs.DeploymentRoot = $DeploymentRoot }
-if ($RecoveryRoot) { $contextArgs.RecoveryRoot = $RecoveryRoot }
-$context = Get-RakazoPersonalContext @contextArgs
+$context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 [void](Assert-RakazoPersonalInitialized $context)
 $composeArgs = Get-RakazoPersonalComposeArguments $context
 Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($composeArgs + @("stop")) | Out-Null

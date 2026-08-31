@@ -431,6 +431,10 @@ recovery-point directory remains self-describing and checksum-verifiable. Keep t
 outside the workstation as well as in its restricted local password file. Losing both the machine
 and the only password makes the encrypted NAS copy unrecoverable.
 
+On a NAS shared by several systems, use an application-owned path such as
+`\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic`. The contents are an encrypted Restic
+repository, not a live Docker volume and not an ordinary folder of readable Rakazo files.
+
 ### Published release
 
 The published release already has its own `BACKUP-RESTORE.md`, `backup.ps1`, and `restore.ps1` in
