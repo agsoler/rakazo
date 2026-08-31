@@ -961,7 +961,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
         const acceptsImages =
           deps.runtime.describe().capabilities.scripted ||
           modelAcceptsImageInput(runModelProvider, runModelId);
-        const groupContext = thread.groupId
+        const groupRunContext = thread.groupId
           ? await loadGroupContext(deps.prisma, thread.groupId, { id: bot.id, name: bot.name })
           : undefined;
         // Phone runs are rare; the source lookup only happens for them.
@@ -2444,30 +2444,30 @@ export function createRunExecutor(deps: ExecutorDeps) {
           });
         }
         const runtimeHistory = [...historicalContext, ...history];
-        // Without a roster a bot only knows the bots it spawned itself.
-        const botDirectory = thread.groupId
-          ? undefined
-          : renderBotDirectory(
-              (
-                await deps.prisma.bot.findMany({
-                  where: {
-                    workspaceId: run.workspaceId,
-                    userId: run.userId,
-                    archivedAt: null,
-                    id: { not: bot.id },
-                    thread: { isNot: null },
-                  },
-                  select: { id: true, name: true, title: true, description: true },
-                  orderBy: { createdAt: "asc" },
-                  take: BOT_DIRECTORY_LIMIT,
-                })
-              ).map((peer) => ({
-                id: peer.id,
-                name: peer.name,
-                title: peer.title,
-                description: peer.description,
-              })),
-            );
+        // The group roster identifies room members; this directory completes
+        // team awareness without duplicating those members.
+        const botDirectory = renderBotDirectory(
+          (
+            await deps.prisma.bot.findMany({
+              where: {
+                workspaceId: run.workspaceId,
+                userId: run.userId,
+                archivedAt: null,
+                id: { notIn: groupRunContext?.memberIds ?? [bot.id] },
+                thread: { isNot: null },
+              },
+              select: { id: true, name: true, title: true, description: true },
+              orderBy: { createdAt: "asc" },
+              take: BOT_DIRECTORY_LIMIT,
+            })
+          ).map((peer) => ({
+            id: peer.id,
+            name: peer.name,
+            title: peer.title,
+            description: peer.description,
+          })),
+          thread.groupId ? "outside_group" : "workspace",
+        );
 
         try {
           for await (const event of deps.runtime.run(
@@ -2478,7 +2478,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
               prompt,
               instructions: [
                 bot.instructions || `${bot.name}: ${bot.title}\n${bot.description}`,
-                groupContext,
+                groupRunContext?.instructions,
                 phoneContext,
                 memoryContext ? redactSecrets(memoryContext, runSecrets) : undefined,
                 scratchpadContext ? redactSecrets(scratchpadContext, runSecrets) : undefined,

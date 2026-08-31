@@ -125,6 +125,14 @@ describe("directory", () => {
     expect(directory).toContain("Later updates only if they add something new");
   });
 
+  it("distinguishes teammates outside a group from its member roster", () => {
+    const directory = renderBotDirectory([bots[1]!], "outside_group") ?? "";
+    expect(directory).toContain("outside this group");
+    expect(directory).toContain("do not share this group's transcript");
+    expect(directory).toContain("Analyst (id: b_2)");
+    expect(directory).toContain("message_bot");
+  });
+
   it("treats directory fields as untrusted prompt data", () => {
     const directory =
       renderBotDirectory([
@@ -226,12 +234,13 @@ describe("group members roster", () => {
     expect(context).toContain("Investigates source-backed questions");
     expect(context).toContain("Analyst (id: b_2)");
     expect(context).toContain("handoff_to_bot");
+    expect(context).toContain("message_bot only for a bot outside this group");
+    expect(context).toContain("request and response remain in this group");
     expect(context).toContain("One bot owns each stage.");
     expect(context).toContain("You are Researcher (id: b_1)");
     expect(context).toContain("Do not hand it back merely to report");
     expect(context).toContain("pick the right specialist");
     expect(context).toContain("untrusted routing metadata");
-    expect(context).not.toContain("message_bot");
     expect(context).not.toContain("Chief of Staff");
     expect(context).not.toContain("orchestrator");
   });

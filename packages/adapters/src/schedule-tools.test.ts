@@ -97,6 +97,7 @@ describe("filterBuiltinToolsForThread", () => {
   it("keeps handoff only in groups and hides schedule tools outside 1:1", () => {
     expect(filterBuiltinToolsForThread(tools, "group-1").map((tool) => tool.name)).toEqual([
       "handoff_to_bot",
+      "message_bot",
       "remember",
     ]);
     expect(filterBuiltinToolsForThread(tools, null).map((tool) => tool.name)).toEqual([

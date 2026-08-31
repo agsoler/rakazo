@@ -28,6 +28,11 @@ function deps(
     /** Simulate a unique (threadId, clientNonce) race after both retries miss. */
     uniqueConflictOnCommit?: boolean;
     transactionConflictOnce?: boolean;
+    sourceGroupId?: string | null;
+    targetIsCurrentGroupMember?: boolean;
+    originThreadId?: string;
+    originThreadGroupId?: string | null;
+    originOutboundMatches?: boolean;
   } = {},
 ) {
   const enqueue = vi.fn().mockResolvedValue(undefined);
@@ -51,6 +56,11 @@ function deps(
     bot: {
       findFirst: vi.fn().mockResolvedValue(options.targetArchived ? null : { id: "bot-target" }),
     },
+    chatGroupMember: {
+      findFirst: vi
+        .fn()
+        .mockResolvedValue(options.targetIsCurrentGroupMember ? { id: "member-1" } : null),
+    },
     task: { create: vi.fn().mockResolvedValue({ id: "task-1" }) },
     message: {
       findUnique: messageFindUnique,
@@ -58,7 +68,25 @@ function deps(
       update: vi.fn().mockResolvedValue({}),
     },
     event: { create: vi.fn().mockResolvedValue({ seq: 7 }) },
-    thread: { update: vi.fn().mockResolvedValue({}) },
+    thread: {
+      findFirst: vi.fn().mockImplementation(async (args: { where?: { id?: string } }) => {
+        const threadId = args.where?.id;
+        if (threadId === run.threadId) {
+          return { botId: run.botId, groupId: options.sourceGroupId ?? null };
+        }
+        if (options.originThreadId && threadId === options.originThreadId) {
+          return {
+            botId: options.originThreadGroupId ? null : "bot-target",
+            groupId: options.originThreadGroupId ?? null,
+          };
+        }
+        const addressedBot = (
+          options.bots as Array<{ id: string; thread?: { id: string } }> | undefined
+        )?.find((bot) => bot.thread?.id === threadId);
+        return { botId: addressedBot?.id ?? "bot-target", groupId: null };
+      }),
+      update: vi.fn().mockResolvedValue({}),
+    },
   };
   let transactionAttempts = 0;
   const prisma = {
@@ -71,7 +99,26 @@ function deps(
           ],
         ),
     },
-    message: { findUnique: messageFindUnique, findMany: vi.fn().mockResolvedValue([]) },
+    message: {
+      findUnique: messageFindUnique,
+      findFirst: vi.fn().mockImplementation(async () =>
+        options.originThreadId
+          ? {
+              threadId: options.originThreadId,
+              blocks: [
+                {
+                  kind: "bot_message_sent",
+                  toBotId: options.originOutboundMatches === false ? "different-bot" : run.botId,
+                  toBotName: sender.name,
+                  text: "research this",
+                  intent: "request",
+                },
+              ],
+            }
+          : null,
+      ),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     run: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     $transaction: vi.fn(async (fn: (client: unknown) => unknown) => {
       transactionAttempts += 1;
@@ -164,6 +211,48 @@ describe("messaging another bot", () => {
     });
     expect(sent).toEqual({ ok: false, error: "no bot found with that id or name" });
     expect(harness.tx.run.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects message_bot between current group members with a self-healing rationale", async () => {
+    const harness = deps({ sourceGroupId: "group-1", targetIsCurrentGroupMember: true });
+    const sent = await messageBot(harness.deps, run, sender, {
+      bot_id: "bot-target",
+      message: "Review this stage",
+    });
+
+    expect(sent).toEqual({
+      ok: false,
+      error:
+        "Analyst is already an active member of this group. Do not use message_bot when both bots are communicating within the same group: it would move their exchange into a separate personal conversation. Use handoff_to_bot instead so the request and response remain in this shared group conversation.",
+    });
+    expect(harness.tx.message.create).not.toHaveBeenCalled();
+    expect(harness.tx.task.create).not.toHaveBeenCalled();
+    expect(harness.tx.run.create).not.toHaveBeenCalled();
+    expect(harness.notify).not.toHaveBeenCalled();
+    expect(harness.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("allows a group bot to message a bot outside its current group", async () => {
+    const harness = deps({ sourceGroupId: "group-1", targetIsCurrentGroupMember: false });
+    const sent = await messageBot(harness.deps, run, sender, {
+      bot_id: "bot-target",
+      message: "Investigate separately",
+    });
+
+    expect(sent).toMatchObject({ ok: true, botId: "bot-target" });
+    expect(harness.tx.run.create).toHaveBeenCalledOnce();
+    expect(harness.enqueue).toHaveBeenCalledOnce();
+  });
+
+  it("does not apply group routing rules to a personal source thread", async () => {
+    const harness = deps({ sourceGroupId: null, targetIsCurrentGroupMember: true });
+    const sent = await messageBot(harness.deps, run, sender, {
+      bot_id: "bot-target",
+      message: "Handle this in your own chat",
+    });
+
+    expect(sent).toMatchObject({ ok: true, botId: "bot-target" });
+    expect(harness.tx.chatGroupMember.findFirst).not.toHaveBeenCalled();
   });
 
   it("refuses an empty message", async () => {
@@ -300,6 +389,39 @@ describe("messaging another bot", () => {
     expect(harness.tx.message.create).toHaveBeenLastCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ replyToMessageId: undefined }),
+      }),
+    );
+  });
+
+  it("routes an explicit reply back to the conversation that originated the request", async () => {
+    const harness = deps({
+      originThreadId: "thread-origin-group",
+      originThreadGroupId: "group-origin",
+      targetIsCurrentGroupMember: true,
+      hopBlocks: [
+        {
+          kind: "bot_message_received",
+          fromBotId: "bot-target",
+          fromBotName: "Coordinator",
+          text: "research this",
+          hop: 1,
+          intent: "request",
+          returnToMessageId: "message-request",
+        },
+      ],
+    });
+
+    const sent = await messageBot(
+      harness.deps,
+      { ...run, sourceMessageId: "message-source" },
+      sender,
+      { bot_id: "bot-target", message: "Interim finding", intent: "status" },
+    );
+
+    expect(sent).toMatchObject({ ok: true, botId: "bot-target" });
+    expect(harness.tx.run.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ threadId: "thread-origin-group" }),
       }),
     );
   });
@@ -533,6 +655,9 @@ describe("hardening", () => {
 describe("automatic outcome return", () => {
   it("routes a delegated run's final text back to its coordinator", async () => {
     const harness = deps({
+      originThreadId: "thread-origin-group",
+      originThreadGroupId: "group-origin",
+      targetIsCurrentGroupMember: true,
       hopBlocks: [
         {
           kind: "bot_message_received",
@@ -553,8 +678,19 @@ describe("automatic outcome return", () => {
     );
     expect(returned).toBe(true);
     expect(harness.tx.run.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ trigger: "bot_message" }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({
+          threadId: "thread-origin-group",
+          trigger: "bot_message",
+        }),
+      }),
     );
+    expect(harness.tx.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ threadId: "thread-origin-group" }),
+      }),
+    );
+    expect(harness.notify).toHaveBeenCalledWith("thread-origin-group", 7);
     expect(harness.tx.run.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ status: { in: ["completed", "failed"] } }),
@@ -569,5 +705,35 @@ describe("automatic outcome return", () => {
       },
       data: { botOutcomeReturnedAt: expect.any(Date) },
     });
+  });
+
+  it("does not trust a forged return message that did not target the delegated bot", async () => {
+    const harness = deps({
+      originThreadId: "thread-origin-group",
+      originThreadGroupId: "group-origin",
+      originOutboundMatches: false,
+      hopBlocks: [
+        {
+          kind: "bot_message_received",
+          fromBotId: "bot-target",
+          fromBotName: "Coordinator",
+          text: "research this",
+          hop: 1,
+          intent: "request",
+          returnToMessageId: "message-request",
+        },
+      ],
+    });
+    const returned = await returnBotMessageOutcome(
+      harness.deps,
+      { ...run, sourceMessageId: "message-source" },
+      sender,
+      "The answer is 42.",
+    );
+
+    expect(returned).toBe(true);
+    expect(harness.tx.run.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ threadId: "thread-target" }) }),
+    );
   });
 });

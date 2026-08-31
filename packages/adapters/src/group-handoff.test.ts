@@ -177,8 +177,9 @@ describe("group starting context visibility", () => {
       id: "bot-a",
       name: "BOT-A",
     });
-    expect(context).toContain("<creator_context>");
-    expect(context).toContain("Private coordination notes");
+    expect(context?.instructions).toContain("<creator_context>");
+    expect(context?.instructions).toContain("Private coordination notes");
+    expect(context?.memberIds).toEqual(["bot-a", "bot-b"]);
   });
 
   it("never supplies creator-only context to another member", async () => {
@@ -186,7 +187,7 @@ describe("group starting context visibility", () => {
       id: "bot-b",
       name: "BOT-B",
     });
-    expect(context).not.toContain("<creator_context>");
-    expect(context).not.toContain("Private coordination notes");
+    expect(context?.instructions).not.toContain("<creator_context>");
+    expect(context?.instructions).not.toContain("Private coordination notes");
   });
 });

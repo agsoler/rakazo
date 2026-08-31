@@ -41,6 +41,11 @@ The creating bot may include either, both, or neither form of starting context:
 - **Creator-only starting context** is available only to the bot that created the group. Other bots
   never receive it. You, as the authenticated owner, can inspect it in group settings.
 
+Inside a group, each bot sees the current group members separately from your other active bots. It
+uses `handoff_to_bot` for another current member so the request and response remain in the shared
+group conversation. It may use `message_bot` to delegate separate work to a bot outside the group;
+that bot works in its own conversation and the result returns to the originating group.
+
 Creator-only means hidden from the other bots, not encrypted from the owner or the machine
 administrator. Starting context is treated as untrusted background: it cannot override system policy
 or later instructions from the user.

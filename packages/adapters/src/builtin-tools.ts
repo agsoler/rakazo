@@ -561,7 +561,7 @@ export const builtinAgentTools: ConnectorTool[] = [
   {
     name: "message_bot",
     description:
-      "Send a useful update, question, or result to another of the user's bots. Delivery is async and does not end your turn. Continue independent work; do not poll or send ack-only messages. Later updates only if they add something new.",
+      "Send a useful update, question, or result to another of the user's bots. In a group, use this only for a bot outside the current group; use handoff_to_bot for a current member so both sides of the exchange remain in the shared group conversation. Delivery is async and does not end your turn. Continue independent work; do not poll or send ack-only messages. Later updates only if they add something new.",
     inputSchema: {
       type: "object",
       properties: {
