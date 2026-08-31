@@ -230,7 +230,14 @@ git switch integration/rakazo-dev</code></pre>
             </article>
             <article>
               <span>02</span>
-              <div><h3>Start</h3><p>Bring up only the isolated development stack.</p></div>
+              <div>
+                <h3>Start the port-5300 system</h3>
+                <p>
+                  Start Rakazo's development services from this source checkout, using their own
+                  Docker project, database, files, and ports. The release on port 5200 is not
+                  restarted or modified.
+                </p>
+              </div>
               <code>.\scripts\windows-dev\Start-RakazoDev.ps1</code>
             </article>
             <article>
@@ -248,6 +255,25 @@ git switch integration/rakazo-dev</code></pre>
               <div><h3>Stop</h3><p>Stop processes and containers; preserve data.</p></div>
               <code>.\scripts\windows-dev\Stop-RakazoDev.ps1</code>
             </article>
+          </div>
+
+          <div class="callout callout--warning">
+            <h3>What the start script actually does</h3>
+            <p>
+              Think of this script as the development environment's power button and safety
+              checklist. It coordinates several separate programs in the correct order:
+            </p>
+            <ol>
+              <li>Checks that the local configuration, compatible Node/pnpm, Docker Desktop, and Ollama are available.</li>
+              <li>Starts or reuses PostgreSQL and the bot-computer supervisor in Docker project <code>rakazo-dev</code>.</li>
+              <li>Installs the repository's pinned packages, applies database migrations, and builds the required sandbox images.</li>
+              <li>Starts the web, API, and worker directly from this checkout, then waits for ports 5300 and 3200 to answer.</li>
+            </ol>
+            <p>
+              It does <strong>not</strong> erase development data, operate on Docker project
+              <code>rakazo</code>, or change the published release on port 5200. If development is
+              already healthy, running it again simply reports that it is already running.
+            </p>
           </div>
 
           <div class="callout callout--plain">
