@@ -1,5 +1,8 @@
 # Group-aware bot collaboration
 
+Related decision: [Shared bot guidance and knowledge](0004-shared-bot-guidance.md) records why
+`message_bot` intent semantics live in tool metadata rather than a workspace-wide system prompt.
+
 ## Decision
 
 Group conversations expose two distinct routing surfaces to each running bot:
