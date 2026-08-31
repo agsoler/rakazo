@@ -199,6 +199,8 @@ COMPUTER_E2E_MODEL=<vision-capable-openrouter-model-id> pnpm test:computer
 ```
 
 - [Self-hosting](./docs/self-host.md)
+- [Windows fork development and disaster recovery](./docs/fork-development-handbook.md)
+- [Interactive Windows fork development guide](./docs/fork-development-guide/index.html)
 - [Computer runtime and isolation](./docs/computer-runtime.md)
 - [Mobile releases](./docs/mobile-release.md)
 - [Performance testing](./docs/performance.md)

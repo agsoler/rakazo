@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="An offline, junior-friendly guide to the Rakazo Windows fork development environment."
+    />
+    <title>Rakazo Fork Field Guide</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#guide-content">Skip to the guide</a>
+
+    <header class="masthead">
+      <div class="brand-block">
+        <span class="brand-mark" aria-hidden="true">RZ</span>
+        <div>
+          <p class="eyebrow">Windows development / field manual 01</p>
+          <h1>Fork Field Guide</h1>
+        </div>
+      </div>
+      <div class="status-plate">
+        <span class="status-light" aria-hidden="true"></span>
+        <span>Target: <strong>127.0.0.1:5300</strong></span>
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <aside class="rail" aria-label="Guide chapters">
+        <p class="rail-label">Chapters</p>
+        <nav id="chapter-nav">
+          <a href="#map" data-route="map"><span>01</span>System map</a>
+          <a href="#setup" data-route="setup"><span>02</span>First setup</a>
+          <a href="#routine" data-route="routine"><span>03</span>Daily routine</a>
+          <a href="#git" data-route="git"><span>04</span>Git workflow</a>
+          <a href="#build" data-route="build"><span>05</span>Build & test</a>
+          <a href="#storage" data-route="storage"><span>06</span>Storage</a>
+          <a href="#recovery" data-route="recovery"><span>07</span>Recovery</a>
+          <a href="#glossary" data-route="glossary"><span>08</span>Glossary</a>
+        </nav>
+
+        <div class="rail-note">
+          <span class="rail-note__symbol" aria-hidden="true">!</span>
+          <p><strong>5200 is the release.</strong><br />The scripts in this guide target only 5300.</p>
+        </div>
+      </aside>
+
+      <main id="guide-content" tabindex="-1">
+        <section id="map" class="chapter" data-chapter="map">
+          <div class="chapter-heading">
+            <p class="chapter-number">Chapter 01</p>
+            <h2>Know what is running</h2>
+            <p class="lede">
+              Development is a hybrid system: live source code runs on Windows; persistent and
+              isolated services run in Docker.
+            </p>
+          </div>
+
+          <div class="truth-banner">
+            <strong>One sentence to remember</strong>
+            <p>GitHub saves the software. Separate backups save your Rakazo state.</p>
+          </div>
+
+          <div class="diagram-toolbar">
+            <div>
+              <p class="eyebrow">Interactive topology</p>
+              <h3>Port 5300 development path</h3>
+            </div>
+            <label class="switch-control" for="show-release">
+              <input type="checkbox" id="show-release" />
+              <span class="switch" aria-hidden="true"></span>
+              Show release boundary
+            </label>
+          </div>
+
+          <div class="system-map" id="system-map">
+            <div class="node node--browser">
+              <span class="node__kind">YOU USE</span>
+              <strong>Browser</strong>
+              <code>:5300</code>
+            </div>
+            <span class="connector connector--one" aria-hidden="true">→</span>
+            <div class="node node--source">
+              <span class="node__kind">WINDOWS SOURCE</span>
+              <strong>Web + API + Worker</strong>
+              <code>:5300 / :3200</code>
+            </div>
+            <span class="connector connector--two" aria-hidden="true">→</span>
+            <div class="service-cluster">
+              <div class="node node--docker">
+                <span class="node__kind">DOCKER</span>
+                <strong>PostgreSQL</strong>
+                <code>:5433</code>
+              </div>
+              <div class="node node--docker">
+                <span class="node__kind">DOCKER</span>
+                <strong>Supervisor</strong>
+                <code>:7091</code>
+              </div>
+              <div class="node node--ollama">
+                <span class="node__kind">WINDOWS</span>
+                <strong>Ollama</strong>
+                <code>:11434</code>
+              </div>
+            </div>
+
+            <div class="release-boundary" aria-live="polite">
+              <span class="release-boundary__tag">SEPARATE INSTALLATION</span>
+              <strong>Published release</strong>
+              <span>Port 5200 · Compose project <code>rakazo</code> · separate data</span>
+            </div>
+          </div>
+
+          <div class="fact-grid">
+            <article class="fact-card">
+              <span class="fact-card__number">5300</span>
+              <h3>Source web</h3>
+              <p>The version you edit and test.</p>
+            </article>
+            <article class="fact-card">
+              <span class="fact-card__number">5200</span>
+              <h3>Published release</h3>
+              <p>Your stable comparison installation.</p>
+            </article>
+            <article class="fact-card">
+              <span class="fact-card__number">2</span>
+              <h3>Safety boundaries</h3>
+              <p>Different Compose names and different storage.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="setup" class="chapter" data-chapter="setup" hidden>
+          <div class="chapter-heading">
+            <p class="chapter-number">Chapter 02</p>
+            <h2>First setup</h2>
+            <p class="lede">Complete these once on a new machine or fresh clone.</p>
+          </div>
+
+          <div class="prerequisite-strip">
+            <span>PowerShell 7</span><span>Git</span><span>Node 22.22+</span><span>Docker Desktop</span
+            ><span>Ollama</span>
+          </div>
+
+          <ol class="checklist" id="setup-checklist">
+            <li>
+              <input type="checkbox" id="check-tools" data-check="tools" />
+              <label for="check-tools">
+                <strong>Verify the tools</strong>
+                <span>Every command below should print a version, not an error.</span>
+              </label>
+              <div class="command-block">
+                <button type="button" data-copy aria-label="Copy verification commands">Copy</button>
+                <pre><code>pwsh --version
+git --version
+node --version
+corepack pnpm --version
+docker version
+docker compose version
+ollama --version</code></pre>
+              </div>
+            </li>
+            <li>
+              <input type="checkbox" id="check-clone" data-check="clone" />
+              <label for="check-clone">
+                <strong>Clone the fork and identify upstream</strong>
+                <span><code>origin</code> is writable; <code>upstream</code> is official Rakazo.</span>
+              </label>
+              <div class="command-block">
+                <button type="button" data-copy aria-label="Copy clone commands">Copy</button>
+                <pre><code>git clone https://github.com/agsoler/rakazo.git Rakazo
+Set-Location .\Rakazo
+git remote add upstream https://github.com/elie222/rakazo.git
+git fetch --all --prune
+git switch integration/rakazo-dev</code></pre>
+              </div>
+            </li>
+            <li>
+              <input type="checkbox" id="check-env" data-check="env" />
+              <label for="check-env">
+                <strong>Create local configuration</strong>
+                <span>This generates secrets and refuses to overwrite an existing <code>.env</code>.</span>
+              </label>
+              <div class="command-block">
+                <button type="button" data-copy aria-label="Copy initialization command">Copy</button>
+                <pre><code>.\scripts\windows-dev\Initialize-RakazoDev.ps1</code></pre>
+              </div>
+            </li>
+            <li>
+              <input type="checkbox" id="check-models" data-check="models" />
+              <label for="check-models">
+                <strong>Check Ollama models</strong>
+                <span>The default configuration names DeepSeek cloud and Qwen 27B.</span>
+              </label>
+              <div class="command-block">
+                <button type="button" data-copy aria-label="Copy Ollama command">Copy</button>
+                <pre><code>ollama list</code></pre>
+              </div>
+            </li>
+            <li>
+              <input type="checkbox" id="check-start" data-check="start" />
+              <label for="check-start">
+                <strong>Start development</strong>
+                <span>The first run installs packages and builds images, so it takes longer.</span>
+              </label>
+              <div class="command-block">
+                <button type="button" data-copy aria-label="Copy start command">Copy</button>
+                <pre><code>.\scripts\windows-dev\Start-RakazoDev.ps1</code></pre>
+              </div>
+            </li>
+          </ol>
+
+          <button class="text-button" type="button" id="reset-checklist">Reset this checklist</button>
+        </section>
+
+        <section id="routine" class="chapter" data-chapter="routine" hidden>
+          <div class="chapter-heading">
+            <p class="chapter-number">Chapter 03</p>
+            <h2>Your daily routine</h2>
+            <p class="lede">Start safely, make a focused change, verify it, and stop without data loss.</p>
+          </div>
+
+          <div class="timeline">
+            <article>
+              <span>01</span>
+              <div><h3>Orient</h3><p>Check the current branch and uncommitted changes.</p></div>
+              <code>git status --short</code>
+            </article>
+            <article>
+              <span>02</span>
+              <div><h3>Start</h3><p>Bring up only the isolated development stack.</p></div>
+              <code>.\scripts\windows-dev\Start-RakazoDev.ps1</code>
+            </article>
+            <article>
+              <span>03</span>
+              <div><h3>Work</h3><p>Edit source; the development processes reload most changes.</p></div>
+              <code>http://127.0.0.1:5300</code>
+            </article>
+            <article>
+              <span>04</span>
+              <div><h3>Verify</h3><p>Run checks that match the risk of your change.</p></div>
+              <code>corepack pnpm check</code>
+            </article>
+            <article>
+              <span>05</span>
+              <div><h3>Stop</h3><p>Stop processes and containers; preserve data.</p></div>
+              <code>.\scripts\windows-dev\Stop-RakazoDev.ps1</code>
+            </article>
+          </div>
+
+          <div class="callout callout--plain">
+            <h3>If 5300 cannot reconnect</h3>
+            <p>Start the environment again, then read the error log. Docker Desktop and Ollama must both be running.</p>
+            <div class="command-block">
+              <button type="button" data-copy aria-label="Copy troubleshooting commands">Copy</button>
+              <pre><code>.\scripts\windows-dev\Start-RakazoDev.ps1
+Get-Content .\.local\run\source.err.log -Tail 100</code></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="git" class="chapter" data-chapter="git" hidden>
+          <div class="chapter-heading">
+            <p class="chapter-number">Chapter 04</p>
+            <h2>A clean Git workflow</h2>
+            <p class="lede">One official mirror, one branch per contribution, one combined local branch.</p>
+          </div>
+
+          <div class="branch-board">
+            <article class="branch branch--upstream">
+              <span>OFFICIAL</span><h3>upstream/main</h3><p>The project we follow.</p>
+            </article>
+            <span class="branch-arrow" aria-hidden="true">→</span>
+            <article class="branch branch--main">
+              <span>CLEAN MIRROR</span><h3>main</h3><p>No local feature commits.</p>
+            </article>
+            <span class="branch-split" aria-hidden="true">↗<br />↘</span>
+            <div class="branch-stack">
+              <article class="branch branch--feature">
+                <span>CONTRIBUTION</span><h3>feat/... or fix/...</h3><p>One upstream proposal.</p>
+              </article>
+              <article class="branch branch--integration">
+                <span>LOCAL PRODUCT</span><h3>integration/rakazo-dev</h3><p>Combined testing on 5300.</p>
+              </article>
+            </div>
+          </div>
+
+          <div class="rule-list">
+            <article><strong>Keep main boring.</strong><p>It should move only when official Rakazo moves.</p></article>
+            <article><strong>Keep features narrow.</strong><p>A reviewer should understand one proposal at a time.</p></article>
+            <article><strong>Use integration locally.</strong><p>It proves how accepted local changes behave together.</p></article>
+            <article><strong>Push important commits.</strong><p>Unpushed commits disappear with the disk.</p></article>
+          </div>
+
+          <div class="command-block command-block--wide">
+            <button type="button" data-copy aria-label="Copy main refresh commands">Copy</button>
+            <pre><code># Refresh the clean mirror. Commit or stash other work first.
+git fetch --all --prune
+git switch main
+git merge --ff-only upstream/main
+git push origin main</code></pre>
+          </div>
+        </section>
+
+        <section id="build" class="chapter" data-chapter="build" hidden>
+          <div class="chapter-heading">
+            <p class="chapter-number">Chapter 05</p>
+            <h2>Build is not run</h2>
+            <p class="lede">Each command answers a different engineering question.</p>
+          </div>
+
+          <table class="command-table">
+            <caption>Development commands and the questions they answer</caption>
+            <thead>
+              <tr class="command-row command-row--head">
+                <th scope="col">Question</th><th scope="col">Command</th><th scope="col">Answer</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="command-row">
+                <th scope="row">Can it compile?</th><td><code>corepack pnpm build</code></td><td>Builds packages. It does not host 5300.</td>
+              </tr>
+              <tr class="command-row">
+                <th scope="row">Does it type-check?</th><td><code>corepack pnpm check</code></td><td>Checks TypeScript and package contracts.</td>
+              </tr>
+              <tr class="command-row">
+                <th scope="row">Does it follow rules?</th><td><code>corepack pnpm lint</code></td><td>Checks formatting and static rules.</td>
+              </tr>
+              <tr class="command-row">
+                <th scope="row">Do units behave?</th><td><code>corepack pnpm test</code></td><td>Runs fast isolated tests.</td>
+              </tr>
+              <tr class="command-row">
+                <th scope="row">Do services cooperate?</th><td><code>corepack pnpm test:integration</code></td><td>Exercises database and service journeys.</td>
+              </tr>
+              <tr class="command-row">
+                <th scope="row">Does the UI journey work?</th><td><code>corepack pnpm test:e2e</code></td><td>Runs Playwright workflows.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="callout callout--warning">
+            <h3>Before a pull request</h3>
+            <p>Run the repository checks required by <code>CONTRIBUTING.md</code>, inspect every changed file, and confirm no secret or personal path entered Git.</p>
+          </div>
+        </section>
+
+        <section id="storage" class="chapter" data-chapter="storage" hidden>
+          <div class="chapter-heading">
+            <p class="chapter-number">Chapter 06</p>
+            <h2>What survives where</h2>
+            <p class="lede">A container is not a backup. An image is not your application data.</p>
+          </div>
+
+          <div class="storage-ledger">
+            <article>
+              <div class="storage-icon storage-icon--git" aria-hidden="true">GIT</div>
+              <h3>GitHub fork</h3>
+              <p>Source, tracked scripts, documentation, pushed commits and branches.</p>
+              <span class="badge badge--yes">Software recovery</span>
+            </article>
+            <article>
+              <div class="storage-icon storage-icon--db" aria-hidden="true">DB</div>
+              <h3>PostgreSQL volume</h3>
+              <p>Users, bots, groups, messages, settings, and application records.</p>
+              <span class="badge badge--no">Not in GitHub</span>
+            </article>
+            <article>
+              <div class="storage-icon storage-icon--files" aria-hidden="true">DIR</div>
+              <h3><code>.local/data</code></h3>
+              <p>Bot homes, files, revisions, and artifacts.</p>
+              <span class="badge badge--no">Not in GitHub</span>
+            </article>
+            <article>
+              <div class="storage-icon storage-icon--key" aria-hidden="true">KEY</div>
+              <h3><code>.env</code></h3>
+              <p>Secrets, encryption keys, URLs, ports, and provider configuration.</p>
+              <span class="badge badge--critical">Encrypted backup</span>
+            </article>
+          </div>
+
+          <div class="callout callout--danger">
+            <h3>Three items form a full state backup</h3>
+            <p><strong>Database dump + complete <code>.local/data</code> + matching <code>.env</code>.</strong> Store them together, encrypted, off this computer, and record the Git commit.</p>
+          </div>
+        </section>
+
+        <section id="recovery" class="chapter" data-chapter="recovery" hidden>
+          <div class="chapter-heading">
+            <p class="chapter-number">Chapter 07</p>
+            <h2>Disaster recovery</h2>
+            <p class="lede">Choose what survived. The result is determined by the evidence you still possess.</p>
+          </div>
+
+          <fieldset class="recovery-selector">
+            <legend>Choose a recovery scenario</legend>
+            <button type="button" class="active" data-scenario="fork" aria-pressed="true">Only GitHub survived</button>
+            <button type="button" data-scenario="full" aria-pressed="false">State backup survived too</button>
+          </fieldset>
+
+          <div class="recovery-panel" data-recovery="fork">
+            <div class="recovery-result recovery-result--empty">
+              <span>RESULT</span><strong>Working but empty Rakazo</strong>
+            </div>
+            <ol>
+              <li>Reinstall Git, PowerShell 7, compatible Node, Docker Desktop, and Ollama.</li>
+              <li>Clone the fork, add upstream, and check out <code>integration/rakazo-dev</code>.</li>
+              <li>Restore or download Ollama models.</li>
+              <li>Run <code>Initialize-RakazoDev.ps1</code> to generate new secrets.</li>
+              <li>Run <code>Start-RakazoDev.ps1</code>.</li>
+              <li>Create a new account and reconstruct bots manually.</li>
+            </ol>
+            <p class="plain-truth">Old users, chats, groups, bot files, and encrypted credentials are gone because Git never contained them.</p>
+          </div>
+
+          <div class="recovery-panel" data-recovery="full" hidden>
+            <div class="recovery-result recovery-result--full">
+              <span>RESULT</span><strong>Software and state recoverable</strong>
+            </div>
+            <ol>
+              <li>Clone the exact Git commit recorded with the backup.</li>
+              <li>Keep Rakazo stopped and restore the backed-up <code>.env</code> securely.</li>
+              <li>Restore the logical PostgreSQL dump into a fresh <code>rakazo-dev</code> database.</li>
+              <li>Restore the complete <code>.local/data</code> directory.</li>
+              <li>Start that baseline and verify users, bots, history, files, and one bot run.</li>
+              <li>Update to newer upstream code only after the restored baseline works.</li>
+            </ol>
+            <p class="plain-truth">The published release has separate backup and restore scripts. Copy each completed recovery point off the machine.</p>
+          </div>
+
+          <div class="drill-card">
+            <p class="eyebrow">The rule that saves projects</p>
+            <h3>3 copies · 2 storage types · 1 off-machine</h3>
+            <p>A backup on the same disk as the application does not protect against disk failure.</p>
+          </div>
+        </section>
+
+        <section id="glossary" class="chapter" data-chapter="glossary" hidden>
+          <div class="chapter-heading">
+            <p class="chapter-number">Chapter 08</p>
+            <h2>Terms without the fog</h2>
+            <p class="lede">The small vocabulary needed to reason about this setup.</p>
+          </div>
+
+          <dl class="glossary-list">
+            <div><dt>origin</dt><dd>Our writable GitHub fork.</dd></div>
+            <div><dt>upstream</dt><dd>The official Rakazo repository we follow.</dd></div>
+            <div><dt>branch</dt><dd>A line of commits. We use one per contribution.</dd></div>
+            <div><dt>integration branch</dt><dd>The combined local experience. It is not an upstream pull request.</dd></div>
+            <div><dt>container</dt><dd>A disposable running process created from an image.</dd></div>
+            <div><dt>image</dt><dd>A packaged filesystem and recipe used to create containers.</dd></div>
+            <div><dt>volume</dt><dd>Docker-managed persistent data that survives container replacement.</dd></div>
+            <div><dt>bind mount</dt><dd>A normal Windows directory made visible inside a container.</dd></div>
+            <div><dt>Compose project</dt><dd>A named group of containers, networks, and volumes. Its name is part of our safety boundary.</dd></div>
+            <div><dt>migration</dt><dd>A versioned change to the database structure.</dd></div>
+            <div><dt>secret</dt><dd>A value that grants access or decrypts data. It never belongs in Git.</dd></div>
+            <div><dt>rebase</dt><dd>Replays commits on a newer base and rewrites their IDs. Ask before improvising.</dd></div>
+          </dl>
+
+          <div class="finish-card">
+            <p class="eyebrow">Canonical reference</p>
+            <h3>Need the complete commands and rationale?</h3>
+            <p>Read <code>docs/fork-development-handbook.md</code> in the repository.</p>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer>
+      <span>Rakazo fork field guide</span>
+      <span>Offline · no telemetry · no remote assets</span>
+    </footer>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

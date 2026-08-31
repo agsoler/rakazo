@@ -1,0 +1,83 @@
+diff --git a/infra/sandboxes/supervisor/src/home-path.ts b/infra/sandboxes/supervisor/src/home-path.ts
+new file mode 100644
+index 0000000..b320edd
+--- /dev/null
++++ b/infra/sandboxes/supervisor/src/home-path.ts
+@@ -0,0 +1,31 @@
++import path from "node:path";
++
++type ComputerHomePathInput = {
++  requestHomePath: string;
++  botId: string;
++  serviceDataDir: string;
++  clientDataDir?: string;
++};
++
++function pathApiFor(value: string): typeof path.posix | typeof path.win32 {
++  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\") ? path.win32 : path.posix;
++}
++
++/** Resolve a validated client home path to the supervisor's mounted data directory. */
++export function resolveComputerHomePath(input: ComputerHomePathInput): string {
++  const servicePath = pathApiFor(input.serviceDataDir);
++  const serviceHomePath = servicePath.resolve(input.serviceDataDir, "homes", input.botId);
++  if (!input.clientDataDir) {
++    if (servicePath.resolve(input.requestHomePath) !== serviceHomePath) {
++      throw new Error("computer home must be the bot's home directory");
++    }
++    return serviceHomePath;
++  }
++
++  const clientPath = pathApiFor(input.clientDataDir);
++  const clientHomePath = clientPath.resolve(input.clientDataDir, "homes", input.botId);
++  if (clientPath.resolve(input.requestHomePath) !== clientHomePath) {
++    throw new Error("computer home must be the bot's home directory");
++  }
++  return serviceHomePath;
++}
+diff --git a/infra/sandboxes/supervisor/src/index.ts b/infra/sandboxes/supervisor/src/index.ts
+index c42e8d8..7dbf079 100644
+--- a/infra/sandboxes/supervisor/src/index.ts
++++ b/infra/sandboxes/supervisor/src/index.ts
+@@ -30,6 +30,7 @@ import {
+   xdotoolCommand,
+ } from "./computer-spec.js";
+ import { assertComputerHomeWritable } from "./home-ownership.js";
++import { resolveComputerHomePath } from "./home-path.js";
+ import {
+   assertRequestIdentity,
+   attemptComputerControl,
+@@ -67,6 +68,7 @@ const computerContext =
+   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../computer");
+ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+ const dataDir = path.resolve(repositoryRoot, process.env.DATA_DIR ?? "./data");
++const clientDataDir = process.env.SANDBOX_CLIENT_DATA_DIR?.trim() || undefined;
+ let imageReady: Promise<void> | undefined;
+ let supervisorInfo: Docker.ContainerInspectInfo | undefined;
+ const supervisorToken = resolveSupervisorToken(process.env);
+@@ -119,8 +121,12 @@ app.post("/computers", async (c) => {
+       await ensureComputerImage();
+       const runtimeInfo = await inspectSupervisorContainer();
+       const networkMode = await computerNetworkName(body.botId, runtimeInfo);
+-      const serviceHomePath = path.resolve(body.homePath);
+-      assertBotHomePath(serviceHomePath, body.botId);
++      const serviceHomePath = resolveComputerHomePath({
++        requestHomePath: body.homePath,
++        botId: body.botId,
++        serviceDataDir: dataDir,
++        clientDataDir,
++      });
+       const hostUid = process.getuid?.();
+       const hostGid = process.getgid?.();
+       // The API normally creates the home. A non-root standalone supervisor may
+@@ -700,8 +706,1 @@
+-function assertBotHomePath(homePath: string, botId: string) {
+-  const expected = path.join(dataDir, "homes", botId);
+-  if (homePath !== expected) {
+-    throw new Error("computer home must be the bot's home directory");
+-  }
+-}
+-
+ function hostHomePath(serviceHomePath: string, info: Docker.ContainerInspectInfo | undefined) {
+   const dataMount = info?.Mounts.find((mount) => mount.Destination === dataDir);
+   if (!dataMount?.Source) return serviceHomePath;

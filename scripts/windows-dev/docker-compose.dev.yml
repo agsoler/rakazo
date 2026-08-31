@@ -1,0 +1,15 @@
+services:
+  supervisor:
+    image: rakazo-dev-supervisor:latest
+    build: null
+    environment:
+      SANDBOX_CLIENT_DATA_DIR: ${SANDBOX_CLIENT_DATA_DIR:?Start with scripts/windows-dev/Start-RakazoDev.ps1}
+    ports:
+      - "127.0.0.1:7091:7091"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../../.local/data:/data
+
+  data-init:
+    volumes:
+      - ../../.local/data:/data
