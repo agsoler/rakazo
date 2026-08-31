@@ -1,8 +1,9 @@
 # Rakazo personal stable on Windows
 
 These scripts build and operate a private stable deployment from the latest pushed
-`integration/rakazo-dev` commit. They target only Docker Compose project `rakazo-personal`, web port
-5400, API port 3300, and the personal deployment's own volumes.
+`integration/rakazo-dev` commit. They target only Docker Compose project `rakazo-personal` and the
+personal deployment's own volumes. The included local convention uses web port 5400 and API port
+3300; those numbers are preferences, not requirements imposed by Rakazo.
 
 ## First setup
 
@@ -11,6 +12,14 @@ Initialization creates ignored local configuration and secrets but starts no con
 ```powershell
 .\scripts\windows-personal\Test-RakazoPersonalPrerequisites.ps1
 .\scripts\windows-personal\Initialize-RakazoPersonal.ps1
+```
+
+Create the first deployment and its first complete local recovery point before initializing a new
+off-machine repository:
+
+```powershell
+.\scripts\windows-personal\Update-RakazoPersonal.ps1
+.\scripts\windows-personal\Backup-RakazoPersonal.ps1 -SkipReplication
 ```
 
 The default local recovery area is `.local/recovery/personal`. Configure an encrypted restic
@@ -22,12 +31,22 @@ For a NAS that backs up several applications, prefer an application-owned locati
 Rakazo beneath a generic Docker folder: the repository contains Rakazo recovery material regardless
 of which container runtime restores it.
 
+Install Restic using its current official Windows instructions, then verify it is on `PATH`:
+
 ```powershell
+winget install --exact --id restic.restic --scope Machine
+restic version
+
 .\scripts\windows-personal\Initialize-RakazoPersonalReplication.ps1 `
   -Repository "<absolute-private-backup-path>" `
   -GeneratePasswordFile `
   -InitializeRepository
 ```
+
+The first backup precedes `-InitializeRepository` because repository initialization immediately
+syncs a complete recovery point. See the
+[official Restic installation guide](https://restic.readthedocs.io/en/latest/020_installation.html)
+if the WinGet command changes.
 
 Copy the generated password into a password manager or separate physical recovery record. A restic
 repository cannot be recovered without it.
@@ -56,8 +75,9 @@ Install optional desktop shortcuts only after reviewing their destination:
 ```
 
 Downloaded Restic snapshots are verified and imported into the same local recovery catalogue, so
-they appear in the Restore shortcut without manual copying. The Restore shortcut lists valid local recovery points, verifies the chosen point and image
-archive, creates a safety backup of existing personal state, and requires the exact phrase
+they appear in the Restore shortcut without manual copying. The Restore shortcut lists valid local
+recovery points, verifies the chosen point and image archive, creates a safety backup of existing
+personal state, and requires the exact phrase
 `RESTORE rakazo-personal`. It never targets the official reference or source-development stacks.
 
 ## What is and is not recovered

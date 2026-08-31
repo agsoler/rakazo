@@ -9,13 +9,19 @@ For a visual, interactive version, open
 
 ## The short version
 
-There are three separate Rakazo installations on this computer:
+The recommended example layout uses three separate Rakazo environments:
 
-| Purpose | Address | Docker project | Data | Safe use |
+| Purpose | Suggested address | Docker project | Data | Safe use |
 |---|---|---|---|---|
-| Published release | `http://127.0.0.1:5200` | `rakazo` | Release volumes | Everyday use and comparison |
+| Published release | `http://127.0.0.1:5200` | `rakazo` | Release volumes | Reference comparison |
 | Source development | `http://127.0.0.1:5300` | `rakazo-dev` | `rakazo-dev_pgdata` and `.local/data` | Building and testing this fork |
 | Personal stable | `http://127.0.0.1:5400` | `rakazo-personal` | Independent personal volumes | Daily use of locally approved integration builds |
+
+These port numbers are a convenient local convention, not a Rakazo requirement. The tracked helper
+scripts use them as defaults to keep the three environments apart. Another installation may use
+different non-conflicting ports if its local configuration and scripts are changed consistently.
+Personal stable does not exist merely because it appears in this table: initialization and the
+first successful update create it.
 
 The tracked scripts in [`scripts/windows-dev`](../scripts/windows-dev) operate only on
 `rakazo-dev`. They do not update, stop, delete, or share storage with the release installation.
@@ -206,6 +212,7 @@ The prerequisite audit applies these rules:
 | pnpm | Repository pins `9.15.0` | Installs and runs the monorepo |
 | Docker Desktop | Linux containers and Compose enabled | PostgreSQL and bot computers |
 | Ollama | Running on `127.0.0.1:11434` | Local/model-cloud access |
+| Restic | Current supported release; optional until NAS replication is configured | Encrypted off-machine recovery |
 
 You can also inspect the individual command-line tools manually:
 
@@ -217,13 +224,25 @@ corepack pnpm --version
 docker version
 docker compose version
 ollama --version
+restic version
 ```
 
 The repository's [`package.json`](../package.json) and `pnpm-lock.yaml` are the sources of truth for
 Node and pnpm versions. The lockfile can impose a stricter minimum through a dependency; it currently
 raises the Node 24 minimum to 24.15.0. The tracked start script checks that effective requirement.
-Git, Docker Desktop, and Ollama do not have a repository-pinned patch version; install their current
-supported Windows releases and let the audit verify the capabilities Rakazo actually uses.
+Git, Docker Desktop, Ollama, and Restic do not have a repository-pinned patch version; install their
+current supported Windows releases and let the audit verify the capabilities Rakazo actually uses.
+Restic is optional for local development and local backups. On Windows, its official documentation
+supports WinGet or Scoop; for example:
+
+```powershell
+winget install --exact --id restic.restic --scope Machine
+restic version
+```
+
+See the [official Restic installation guide](https://restic.readthedocs.io/en/latest/020_installation.html)
+if the package-manager command changes. `Test-RakazoPersonalPrerequisites.ps1 -RequireRestic`
+checks availability without installing anything.
 
 The default initializer configures these Ollama models:
 
@@ -288,6 +307,49 @@ these steps:
 10. Waits until web 5300 and API 3200 answer health checks.
 
 Open `http://127.0.0.1:5300`. The release remains at `http://127.0.0.1:5200`.
+
+### Optional: initialize personal stable and encrypted recovery
+
+Personal stable is independent of development. The following sequence uses the suggested 5400/3300
+ports and creates no release or development data:
+
+```powershell
+# Read-only host audit.
+.\scripts\windows-personal\Test-RakazoPersonalPrerequisites.ps1
+
+# Generate ignored local configuration and secrets. No containers start yet.
+.\scripts\windows-personal\Initialize-RakazoPersonal.ps1
+
+# Build the latest pushed integration commit, smoke-test it, and deploy personal stable.
+.\scripts\windows-personal\Update-RakazoPersonal.ps1
+
+# Create the first complete local state-and-image recovery point.
+.\scripts\windows-personal\Backup-RakazoPersonal.ps1 -SkipReplication
+```
+
+Install Restic only if encrypted off-machine replication is wanted. Then configure an
+application-owned repository using a generic private path:
+
+```powershell
+winget install --exact --id restic.restic --scope Machine
+restic version
+
+.\scripts\windows-personal\Initialize-RakazoPersonalReplication.ps1 `
+  -Repository "\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic" `
+  -GeneratePasswordFile `
+  -InitializeRepository
+```
+
+The first local backup deliberately comes before `-InitializeRepository`: initialization performs
+the first encrypted sync, so it needs a complete recovery point to send. Replace `YOUR-NAS` with a
+private value only at execution time; never commit it. Copy the generated Restic password to a
+password manager or separate physical recovery record before relying on the NAS copy.
+
+Optional readable desktop launchers can then be installed:
+
+```powershell
+.\scripts\windows-personal\Install-RakazoPersonalShortcuts.ps1 -ConfirmShortcutInstallation
+```
 
 ## 5. Everyday workflow
 
@@ -357,8 +419,9 @@ contributions.
 
 ### Personal stable: promote tested integration code for daily use
 
-Port 5300 is the workshop. Port 5400 is the stable personal installation. Updating personal stable
-does not copy a running development container. The update command performs a controlled promotion:
+In the suggested layout, port 5300 is the workshop and port 5400 is personal stable. Updating
+personal stable does not copy a running development container. The update command performs a
+controlled promotion:
 
 1. Fetch the pushed `origin/integration/rakazo-dev` commit.
 2. Check out that exact commit in a temporary detached worktree, away from private `.local` data.
@@ -442,8 +505,9 @@ repository, not a live Docker volume and not an ordinary folder of readable Raka
 
 ### Published release
 
-The published release already has its own `BACKUP-RESTORE.md`, `backup.ps1`, and `restore.ps1` in
-the release installation directory. Its recovery points include:
+The canonical tracked release tools live in [`scripts/windows-release`](../scripts/windows-release).
+They replace machine-local copies while accepting explicit deployment and backup roots. Their
+recovery points include:
 
 - a PostgreSQL dump;
 - application/bot data;
@@ -558,18 +622,24 @@ release deployment and any newer development state.
 
 1. Install PowerShell 7 and Git, clone the fork, and check out the integration commit recorded by
    the selected recovery point.
-2. Run `Test-RakazoPersonalPrerequisites.ps1`; install Docker Desktop, Ollama, and restic if marked
-   missing.
+2. Run `Test-RakazoPersonalPrerequisites.ps1 -RequireRestic`; install Docker Desktop, Ollama, and
+   Restic if marked missing.
 3. Restore the separately stored restic password file or supply the password through a protected
    recovery process. Do not put it in Git or command history.
 4. Run `Initialize-RakazoPersonal.ps1` with the recovered off-machine repository settings. This
    creates a new empty target but does not start it.
-5. Run `Get-RakazoPersonalRecoveryPoint.ps1` to retrieve the chosen snapshot. It verifies and
-   imports the point into the local catalogue used by Restore.
-6. Run `Test-RakazoPersonalRecoveryPoint.ps1`. Stop on any checksum or image mismatch.
-7. Use the Restore action. It loads the archived images, restores database/appdata/configuration
+5. Retrieve the chosen snapshot into a new, empty download directory. The command verifies and
+   imports the point into the local catalogue used by Restore:
+
+   ```powershell
+   .\scripts\windows-personal\Get-RakazoPersonalRecoveryPoint.ps1 `
+     -Latest `
+     -DestinationDirectory "<new-empty-download-directory>"
+   ```
+6. Use the Restore action. It re-verifies the selected point, loads the archived images, and
+   restores database/appdata/configuration
    only into `rakazo-personal`, and verifies ports 5400 and 3300.
-8. Sign in and check representative bots, groups, conversations, files, configured models, and one
+7. Sign in and check representative bots, groups, conversations, files, configured models, and one
    disposable model interaction.
 
 Result: source, exact runtime images, secrets, and personal state are recoverable without a Docker
@@ -619,9 +689,9 @@ Get-NetTCPConnection -State Listen |
     Format-Table LocalAddress, LocalPort, OwningProcess
 ```
 
-Do not “solve” this by stopping an unknown process. Identify it first. Port 5200 belongs to the
-separate release, port 5300 is development, and port 5400 is personal stable. Identify the owner
-before stopping anything.
+Do not “solve” this by stopping an unknown process. Identify it first. In the suggested layout,
+5200 is the separate reference release, 5300 is development, and 5400 is personal stable. If your
+local choices differ, inspect their configured equivalents before stopping anything.
 
 ### Docker Desktop restarted
 
@@ -675,6 +745,13 @@ storage, not Git.
 - [`package.json`](../package.json): Node, pnpm, and repository commands.
 - [`.env.example`](../.env.example): supported environment settings.
 - [`infra/compose/docker-compose.yml`](../infra/compose/docker-compose.yml): development services.
-- [`scripts/windows-dev`](../scripts/windows-dev): canonical Windows port-5300 operation.
+- [`scripts/windows-dev`](../scripts/windows-dev): canonical Windows source-development operation;
+  the included defaults use port 5300.
+- [`scripts/windows-personal`](../scripts/windows-personal): personal image, deployment, backup,
+  encrypted replication, retrieval, and restore commands.
+- [`scripts/windows-ops`](../scripts/windows-ops): shared safety primitives and disposable recovery
+  tests.
+- [`scripts/windows-release`](../scripts/windows-release): canonical published-image backup and
+  restore adapters.
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md): upstream contribution requirements.
 - [`AGENTS.md`](../AGENTS.md): repository safety and quality rules.

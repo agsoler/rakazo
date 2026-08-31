@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="An offline, junior-friendly guide to the Rakazo Windows fork development environment."
+      content="An offline, junior-friendly guide to Rakazo Windows fork development, personal deployment, and recovery."
     />
     <title>Rakazo Fork Field Guide</title>
     <link rel="stylesheet" href="styles.css" />
@@ -23,7 +23,7 @@
       </div>
       <div class="status-plate">
         <span class="status-light" aria-hidden="true"></span>
-        <span>Target: <strong>127.0.0.1:5300</strong></span>
+        <span>Suggested: <strong>dev :5300 · stable :5400</strong></span>
       </div>
     </header>
 
@@ -43,7 +43,7 @@
 
         <div class="rail-note">
           <span class="rail-note__symbol" aria-hidden="true">!</span>
-          <p><strong>5200 is the release.</strong><br />The scripts in this guide target only 5300.</p>
+          <p><strong>Example port plan.</strong><br />5200 reference · 5300 development · 5400 personal stable.</p>
         </div>
       </aside>
 
@@ -66,7 +66,7 @@
           <div class="diagram-toolbar">
             <div>
               <p class="eyebrow">Interactive topology</p>
-              <h3>Port 5300 development path</h3>
+              <h3>Suggested port-5300 development path</h3>
             </div>
             <label class="switch-control" for="show-release">
               <input type="checkbox" id="show-release" />
@@ -140,6 +140,11 @@
               <p>Different Compose names and different storage.</p>
             </article>
           </div>
+
+          <div class="callout callout--plain">
+            <h3>These ports are suggestions</h3>
+            <p>The guide uses 5200, 5300, and 5400 because three distinct numbers make the safety boundaries easy to see. Rakazo does not require them. The tracked Windows helpers use these defaults; another operator can adopt different non-conflicting ports by changing local configuration and scripts consistently. Personal stable is not created until its initializer and first update run.</p>
+          </div>
         </section>
 
         <section id="setup" class="chapter" data-chapter="setup" hidden>
@@ -159,7 +164,7 @@
               <input type="checkbox" id="check-tools" data-check="tools" />
               <label for="check-tools">
                 <strong>Verify the tools</strong>
-                <span>Every command below should print a version, not an error.</span>
+                <span>The development commands should print versions. Restic may remain absent until encrypted NAS recovery is configured.</span>
               </label>
               <div class="command-block">
                 <button type="button" data-copy aria-label="Copy verification commands">Copy</button>
@@ -169,7 +174,9 @@ node --version
 corepack pnpm --version
 docker version
 docker compose version
-ollama --version</code></pre>
+ollama --version
+# Optional until encrypted off-machine recovery is configured:
+restic version</code></pre>
               </div>
             </li>
             <li>
@@ -219,6 +226,39 @@ git switch integration/rakazo-dev</code></pre>
                 <button type="button" data-copy aria-label="Copy start command">Copy</button>
                 <pre><code>.\scripts\windows-dev\Start-RakazoDev.ps1</code></pre>
               </div>
+            </li>
+            <li>
+              <input type="checkbox" id="check-personal" data-check="personal" />
+              <label for="check-personal">
+                <strong>Optional: create personal stable</strong>
+                <span>This uses the suggested 5400/3300 ports and separate <code>rakazo-personal</code> storage.</span>
+              </label>
+              <div class="command-block">
+                <button type="button" data-copy aria-label="Copy personal stable setup commands">Copy</button>
+                <pre><code>.\scripts\windows-personal\Test-RakazoPersonalPrerequisites.ps1
+.\scripts\windows-personal\Initialize-RakazoPersonal.ps1
+.\scripts\windows-personal\Update-RakazoPersonal.ps1
+.\scripts\windows-personal\Backup-RakazoPersonal.ps1 -SkipReplication</code></pre>
+              </div>
+              <p>The first update builds and smoke-tests the pushed integration commit. The following backup captures its state and exact image set.</p>
+            </li>
+            <li>
+              <input type="checkbox" id="check-replication" data-check="replication" />
+              <label for="check-replication">
+                <strong>Optional: configure encrypted off-machine recovery</strong>
+                <span>Do this after the first local personal backup exists.</span>
+              </label>
+              <div class="command-block">
+                <button type="button" data-copy aria-label="Copy encrypted replication setup commands">Copy</button>
+                <pre><code>winget install --exact --id restic.restic --scope Machine
+restic version
+
+.\scripts\windows-personal\Initialize-RakazoPersonalReplication.ps1 `
+  -Repository "\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic" `
+  -GeneratePasswordFile `
+  -InitializeRepository</code></pre>
+              </div>
+              <p><code>YOUR-NAS</code> is deliberately generic. Substitute a private path only when running the command, and store a second copy of the Restic password away from this computer.</p>
             </li>
           </ol>
 
@@ -422,17 +462,23 @@ git push origin main</code></pre>
           </div>
 
           <div class="state-recovery-card">
-            <p class="eyebrow">Personal stable · port 5400</p>
+            <p class="eyebrow">Personal stable · suggested port 5400</p>
             <h3>Promote a pushed integration commit, not a live development container</h3>
             <p><code>Update-RakazoPersonal.ps1</code> builds immutable app and computer images in a clean detached worktree, records the PostgreSQL and BusyBox images, runs a disposable health test, backs up existing personal state, and deploys only <code>rakazo-personal</code>.</p>
             <div class="command-block">
               <button type="button" data-copy aria-label="Copy personal stable commands">Copy</button>
-              <pre><code>.\scripts\windows-personal\Update-RakazoPersonal.ps1
+              <pre><code># First use only: generate private configuration.
+.\scripts\windows-personal\Initialize-RakazoPersonal.ps1
+
+# Promote, then capture a complete state-and-image recovery point.
+.\scripts\windows-personal\Update-RakazoPersonal.ps1
 .\scripts\windows-personal\Backup-RakazoPersonal.ps1
+
+# After encrypted off-machine replication has been configured:
 .\scripts\windows-personal\Sync-RakazoPersonalBackups.ps1</code></pre>
             </div>
             <p>Every backup saves state. The exact image archive is saved only when the image-set identity changes. Each recovery point has its own encrypted Restic snapshot record, so a later failed sync does not erase earlier success. If encrypted off-machine storage is asleep, the local backup succeeds and Sync retries later.</p>
-            <p>On a shared NAS, give Rakazo an application-owned encrypted repository such as <code>\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic</code>. It stores recovery material; it is not a live Docker folder.</p>
+            <p>On a shared NAS, give Rakazo an application-owned encrypted repository such as <code>\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic</code>. The placeholder keeps this public guide machine-neutral. It stores recovery material; it is not a live Docker folder.</p>
           </div>
         </section>
 
@@ -474,6 +520,7 @@ winget install --id Git.Git -e --source winget</code></pre>
               <article><h3>Docker Desktop</h3><p>Install the current supported Windows release, start it, and use Linux containers. Docker Compose v2 is included.</p><a href="https://docs.docker.com/desktop/setup/install/windows-install/" target="_blank" rel="noreferrer">Official Docker instructions</a></article>
               <article><h3>Ollama</h3><p>Install the current Windows release and start its API on <code>127.0.0.1:11434</code>. Models can be downloaded again.</p><a href="https://docs.ollama.com/windows" target="_blank" rel="noreferrer">Official Ollama instructions</a></article>
               <article><h3>pnpm</h3><p>Do not choose a version yourself. Rakazo's scripts prepare the repository-pinned <code>pnpm 9.15.0</code> beside a compatible Node installation.</p></article>
+              <article><h3>Restic</h3><p>Required only for encrypted off-machine replication and retrieval. Install the current supported Windows release, then run <code>restic version</code>. No Restic version is pinned by this repository.</p><a href="https://restic.readthedocs.io/en/latest/020_installation.html" target="_blank" rel="noreferrer">Official Restic installation guide</a></article>
             </div>
           </details>
 
@@ -536,14 +583,27 @@ winget install --id Git.Git -e --source winget</code></pre>
               <span>RESULT</span><strong>Personal software, images, secrets, and state recoverable</strong>
             </div>
             <ol>
-              <li>Install PowerShell 7 and Git, clone the fork, and run <code>Test-RakazoPersonalPrerequisites.ps1</code>.</li>
+              <li>Install PowerShell 7 and Git, clone the fork, and run <code>Test-RakazoPersonalPrerequisites.ps1 -RequireRestic</code>.</li>
               <li>Install every missing prerequisite, including restic when retrieving the encrypted off-machine copy.</li>
               <li>Recover the restic password from its independent safe location; never put it in Git or command history.</li>
               <li>Initialize an empty personal target and retrieve the selected recovery snapshot. Retrieval verifies it and imports it into the Restore catalogue automatically.</li>
-              <li>Verify its checksums and exact image archive before starting any restore.</li>
-              <li>Use the guided Restore action. It affects only <code>rakazo-personal</code> and requires <code>RESTORE rakazo-personal</code>.</li>
+              <li>Use the guided Restore action. It re-verifies the recovery point, affects only <code>rakazo-personal</code>, and requires <code>RESTORE rakazo-personal</code>.</li>
               <li>Verify sign-in, bots, groups, conversations, files, models, and one disposable model interaction.</li>
             </ol>
+            <div class="command-block command-block--wide">
+              <button type="button" data-copy aria-label="Copy personal recovery commands">Copy</button>
+              <pre><code>.\scripts\windows-personal\Test-RakazoPersonalPrerequisites.ps1 -RequireRestic
+
+.\scripts\windows-personal\Initialize-RakazoPersonal.ps1 `
+  -NasRepository "\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic" `
+  -ResticPasswordFile "&lt;restored-password-file&gt;"
+
+.\scripts\windows-personal\Get-RakazoPersonalRecoveryPoint.ps1 `
+  -Latest `
+  -DestinationDirectory "&lt;new-empty-download-directory&gt;"
+
+.\scripts\windows-personal\Invoke-RakazoPersonalAction.ps1 -Action Restore</code></pre>
+            </div>
             <p class="plain-truth">GitHub rebuilds software, not personal state. Without the encrypted state repository and its password, a new machine can produce only an empty Rakazo.</p>
           </div>
 
