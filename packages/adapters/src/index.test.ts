@@ -190,6 +190,18 @@ describe("builtin tools", () => {
       ]),
     );
     expect(DELEGATION_TOOL_NAMES.has("create_group")).toBe(true);
+
+    const messageBot = builtinAgentTools.find((tool) => tool.name === "message_bot");
+    expect(messageBot).toMatchObject({
+      inputSchema: {
+        properties: {
+          intent: {
+            description:
+              "Purpose of the message. Use request when asking the recipient to perform work, question when asking for an answer, result when returning completed delegated work, status when reporting progress on delegated work, or fyi when providing information that may require no response. Defaults to request.",
+          },
+        },
+      },
+    });
   });
 });
 
