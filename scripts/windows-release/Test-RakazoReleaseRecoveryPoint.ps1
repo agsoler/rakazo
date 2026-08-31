@@ -51,31 +51,23 @@ if (Test-Path -LiteralPath $newManifestPath -PathType Leaf) {
     $result = [pscustomobject]@{ Path = $point; Format = "current"; Manifest = $manifest; ImageSet = $imageSet; ImageArchive = $archiveSet.Archive }
 }
 elseif (Test-Path -LiteralPath $oldManifestPath -PathType Leaf) {
-    foreach ($name in @("rakazo.pgdump", "rakazo-appdata.tar.gz", ".env", "docker-compose.images.yml", "SHA256SUMS.txt")) {
+    $historicalRequired = @("rakazo.pgdump", "rakazo-appdata.tar.gz", ".env", "docker-compose.images.yml", "image-refs.txt", "manifest.json")
+    foreach ($name in @($historicalRequired + "SHA256SUMS.txt")) {
         if (-not (Test-Path -LiteralPath (Join-Path $point $name) -PathType Leaf)) { throw "Incomplete historical release recovery point. Missing: $name" }
     }
-    foreach ($line in Get-Content -LiteralPath (Join-Path $point "SHA256SUMS.txt")) {
-        if ($line -notmatch '^(?<hash>[0-9a-fA-F]{64})  (?<name>.+)$') { throw "Malformed historical checksum line: $line" }
-        $target = Resolve-RakazoContainedPath -BaseDirectory $point -RelativePath $Matches.name -AllowedRoot $point -Description "historical checksum target"
-        if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw "Historical checksum target missing: $($Matches.name)" }
-        if ((Get-RakazoFileSha256 $target) -ne $Matches.hash.ToLowerInvariant()) { throw "Historical checksum mismatch: $($Matches.name)" }
-    }
+    [void](Assert-RakazoRequiredChecksums -Directory $point -RequiredPaths $historicalRequired -FileName "SHA256SUMS.txt")
     $manifest = Get-Content -Raw -LiteralPath $oldManifestPath | ConvertFrom-Json
     if ($manifest.type -ne "rakazo-recovery-point") { throw "Unsupported historical release manifest." }
     $imageSetPath = Resolve-RakazoContainedPath -BaseDirectory $point -RelativePath ([string]$manifest.imageSetManifest) -AllowedRoot $backupRoot -Description "historical image-set manifest"
     if (-not (Test-Path -LiteralPath $imageSetPath -PathType Leaf)) { throw "Historical image-set manifest is missing." }
     $imageSetDirectory = Split-Path -Parent $imageSetPath
     $imageChecksums = Join-Path $imageSetDirectory "SHA256SUMS.txt"
-    if (Test-Path -LiteralPath $imageChecksums) {
-        foreach ($line in Get-Content -LiteralPath $imageChecksums) {
-            if ($line -notmatch '^(?<hash>[0-9a-fA-F]{64})  (?<name>.+)$') { throw "Malformed image-set checksum line: $line" }
-            $target = Resolve-RakazoContainedPath -BaseDirectory $imageSetDirectory -RelativePath $Matches.name -AllowedRoot $imageSetDirectory -Description "historical image-set checksum target"
-            if (-not (Test-Path -LiteralPath $target -PathType Leaf) -or (Get-RakazoFileSha256 $target) -ne $Matches.hash.ToLowerInvariant()) { throw "Historical image-set checksum failed: $($Matches.name)" }
-        }
-    }
+    if (-not (Test-Path -LiteralPath $imageChecksums -PathType Leaf)) { throw "Historical image-set checksums are missing." }
+    [void](Assert-RakazoRequiredChecksums -Directory $imageSetDirectory -RequiredPaths @("image-refs.txt", "manifest.json", "rakazo-images.tar") -FileName "SHA256SUMS.txt")
     $archive = Resolve-RakazoContainedPath -BaseDirectory $point -RelativePath ([string]$manifest.imageArchive) -AllowedRoot $backupRoot -Description "historical image archive"
     if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw "Historical release image archive is missing." }
-    if ($manifest.imageArchiveSha256 -and (Get-RakazoFileSha256 $archive) -ne ([string]$manifest.imageArchiveSha256).ToLowerInvariant()) { throw "Historical release image archive checksum mismatch." }
+    if ([string]::IsNullOrWhiteSpace([string]$manifest.imageArchiveSha256)) { throw "Historical release manifest does not record an image archive checksum." }
+    if ((Get-RakazoFileSha256 $archive) -ne ([string]$manifest.imageArchiveSha256).ToLowerInvariant()) { throw "Historical release image archive checksum mismatch." }
     $imageSet = Get-Content -Raw -LiteralPath $imageSetPath | ConvertFrom-Json
     if (@($imageSet.images).Count -eq 0) { throw "Historical image set contains no images." }
     $result = [pscustomobject]@{ Path = $point; Format = "historical"; Manifest = $manifest; ImageSet = $imageSet; ImageArchive = $archive }

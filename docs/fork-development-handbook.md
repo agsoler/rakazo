@@ -431,6 +431,11 @@ recovery-point directory remains self-describing and checksum-verifiable. Keep t
 outside the workstation as well as in its restricted local password file. Losing both the machine
 and the only password makes the encrypted NAS copy unrecoverable.
 
+Each recovery point is replicated as its own Restic snapshot, linked to its exact image-set ID.
+Successful points stay recorded as successful if a later point cannot sync. Retrieval verifies the
+download and imports it into the local recovery catalogue used by the Restore shortcut; no manual
+file rearrangement is required.
+
 On a NAS shared by several systems, use an application-owned path such as
 `\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic`. The contents are an encrypted Restic
 repository, not a live Docker volume and not an ordinary folder of readable Rakazo files.
@@ -559,7 +564,8 @@ release deployment and any newer development state.
    recovery process. Do not put it in Git or command history.
 4. Run `Initialize-RakazoPersonal.ps1` with the recovered off-machine repository settings. This
    creates a new empty target but does not start it.
-5. Run `Get-RakazoPersonalRecoveryPoint.ps1` to retrieve the chosen snapshot locally.
+5. Run `Get-RakazoPersonalRecoveryPoint.ps1` to retrieve the chosen snapshot. It verifies and
+   imports the point into the local catalogue used by Restore.
 6. Run `Test-RakazoPersonalRecoveryPoint.ps1`. Stop on any checksum or image mismatch.
 7. Use the Restore action. It loads the archived images, restores database/appdata/configuration
    only into `rakazo-personal`, and verifies ports 5400 and 3300.

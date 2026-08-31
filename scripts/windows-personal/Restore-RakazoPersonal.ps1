@@ -44,8 +44,22 @@ if ([string]$backupEnv.RAKAZO_WEB_PORT -ne [string]$context.WebPort -or [string]
     throw "Recovery-point ports do not match the personal target."
 }
 
-$safetyPoint = "none (target has no recorded personal deployment)"
-if (Test-Path -LiteralPath $context.CurrentImageSetFile -PathType Leaf) {
+$safetyPoint = "none (target has no personal volumes)"
+$existingVolumes = @()
+foreach ($volume in @(
+    [pscustomobject]@{ Name = $context.PostgresVolume; Logical = "pgdata" },
+    [pscustomobject]@{ Name = $context.AppDataVolume; Logical = "appdata" }
+)) {
+    $probe = Invoke-RakazoNativeCommand -FilePath "docker" -ArgumentList @("--context", $DockerContext, "volume", "inspect", $volume.Name) -Quiet -AllowFailure
+    if ($probe.ExitCode -eq 0) {
+        [void](Assert-RakazoDockerVolumeOwnership -DockerContext $DockerContext -VolumeName $volume.Name -ExpectedProject $context.Project -ExpectedVolume $volume.Logical)
+        $existingVolumes += $volume.Name
+    }
+}
+if ($existingVolumes.Count) {
+    if ($existingVolumes.Count -ne 2 -or -not (Test-Path -LiteralPath $context.CurrentImageSetFile -PathType Leaf)) {
+        throw "Existing personal state is incomplete and cannot be safety-backed up. No restore changes were made. Repair or preserve the existing volumes before retrying."
+    }
     Write-Host "Creating a safety recovery point for the current personal state..."
     & (Join-Path $PSScriptRoot "Backup-RakazoPersonal.ps1") -DockerContext $DockerContext -DeploymentRoot $context.DeploymentRoot -RecoveryRoot $context.RecoveryRoot -SkipReplication
     $safetyPoint = (Get-ChildItem -LiteralPath $context.RecoveryPointRoot -Directory | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).FullName

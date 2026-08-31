@@ -6,7 +6,7 @@ status: in_progress
 owner: Codex
 research: docs/research/0006-research-personal-stable-operations.md
 created: 2026-08-31
-updated: 2026-08-31
+updated: 2026-09-01
 ---
 
 # 0006 Plan: Personal Stable Image and Recovery Operations
@@ -291,44 +291,47 @@ Pass conditions:
 
 Gate 1: Scope Review
 
-- [ ] Only planned files changed
-- [ ] Historical import and development state untouched
-- [ ] No registry/scheduler/pruning scope added
+- [x] Only planned files changed
+- [x] Historical import and development state untouched
+- [x] No registry/scheduler/pruning scope added
 
 Gate 2: Code Review
 
-- [ ] Every Docker mutation has exact context/project/resource ownership
-- [ ] Error and interruption paths preserve completed backups and prior image references
-- [ ] No secrets/private paths/data added
-- [ ] Common module removes duplication without hiding target identity
-- [ ] Public scripts have help and safe defaults
+- [x] Every Docker mutation has exact context/project/resource ownership
+- [x] Error and interruption paths preserve completed backups and prior image references
+- [x] No secrets/private paths/data added
+- [x] Common module removes duplication without hiding target identity
+- [x] Public scripts have help and safe defaults
 
 Gate 3: Test Review
 
-- [ ] Parser, unit, fixture, image smoke, and disposable recovery tests pass
-- [ ] Tamper and wrong-stack tests fail closed
-- [ ] Fresh images were tested
-- [ ] 5200/5300 regression evidence is clean
+- [x] Parser, unit, fixture, image smoke, and disposable recovery tests pass
+- [x] Tamper and wrong-stack tests fail closed
+- [x] Fresh images were tested
+- [x] 5200/5300 regression evidence is clean
 
 Gate 4: Operations Review
 
-- [ ] Backup, update, restore, sync, status, cancellation, and failure launchers exercised
-- [ ] Independent recovery password requirement is explicit
-- [ ] NAS-unavailable behavior is truthful
+- [ ] Backup, update, restore, sync, status, cancellation, and failure launchers exercised on the live
+  personal deployment; this remains approval-gated.
+- [x] Independent recovery password requirement is explicit
+- [x] NAS-unavailable behavior is truthful
 
 ## Acceptance Criteria
 
-- [ ] Latest pushed integration commit builds into immutable local app and computer images.
-- [ ] Images contain no live-checkout `.local`, `.env`, backup, log, or private sentinel content.
+- [x] Latest pushed integration commit builds into immutable local app and computer images.
+- [x] Images contain no live-checkout `.local`, `.env`, backup, log, or private sentinel content.
 - [ ] Personal stable runs independently on 5400/3300 as `rakazo-personal`.
-- [ ] Backup shortcut always creates state and saves images only for a new set.
-- [ ] Update shortcut performs prebackup, build/reuse, disposable smoke test, deployment, and health
+- [x] Backup implementation always creates state and saves images only for a new set; live shortcut
+  exercise remains approval-gated.
+- [x] Update implementation performs prebackup, build/reuse, disposable smoke test, deployment, and health
   verification without touching development/reference.
-- [ ] Restore shortcut can recover database, appdata, `.env`, deployment config, and images without a
+- [x] Disposable restore recovers database, appdata, `.env`, deployment config, and images without a
   registry, after preview and typed confirmation.
-- [ ] NAS sleep produces a pending-replication warning and later Sync completes it.
-- [ ] Official and custom image sets pass the same verifier/restore logic.
-- [ ] Canonical release scripts are stored in the fork and target only release-owned resources.
+- [x] Missing NAS produces a pending-replication result; per-point retry and retrieval are covered by
+  offline fixtures. A live NAS sync remains approval-gated.
+- [x] Official and custom image sets pass the same verifier/restore logic.
+- [x] Canonical release scripts are stored in the fork and target only release-owned resources.
 - [ ] All checks and review gates pass; live initialization remains unperformed until approved.
 
 ## Rollback Plan
@@ -343,19 +346,34 @@ Gate 4: Operations Review
 
 | Loop | Status | Agent | Action | Evidence | Next |
 |---:|---|---|---|---|---|
-| 1 | complete | orchestrator | implemented common contracts and safety fixtures | 7 offline checks passed; 25 PowerShell files parsed | targeted Docker checks |
-| 2 | complete | orchestrator | implemented personal image/deploy/backup/recovery adapters | image smoke, state recovery, and no-registry image archive round-trip passed | final regression checks |
-| 3 | active | reviewer | run standards/spec/safety review | review gates | fix blocking findings only |
+| 1 | complete | orchestrator | implemented common contracts and safety fixtures | 9 offline checks passed; 25 PowerShell files parsed | targeted Docker checks |
+| 2 | complete | orchestrator | implemented personal image/deploy/backup/recovery adapters | repeatable image IDs, image smoke, state recovery, and no-registry archive round-trip passed | final regression checks |
+| 3 | complete | reviewers + orchestrator | closed standards/spec/safety findings | restore safety backups fail closed; historical checksum coverage is mandatory; active manifests are validated; replication is per point; retrieved points enter the Restore catalogue; reparse escapes are rejected | user reviews branch before live activation |
 
 ## Final Handoff
 
 Changed files:
 
-- To be completed during implementation.
+- Configurable image-Compose ports and updater contract tests.
+- Shared Windows operations module, offline/disposable verification harnesses, personal lifecycle,
+  encrypted replication/retrieval, guarded recovery, release adapters, and launcher installer.
+- Junior-facing handbook and HTML guide plus permanent research and follow-up import plan.
 
 Verification run:
 
-- To be completed during implementation.
+- PowerShell parser: 25 files passed.
+- Offline safety suite: 9 passed, including checksum tamper, ownership, atomic publication,
+  interrupted per-point replication, retrieval/import, and junction rejection.
+- Historical release verifier passed against an existing image-set backup.
+- Fresh custom images built twice with unchanged image IDs; disposable image smoke, state
+  backup/alter/restore, and no-registry archive round-trip passed.
+- `pnpm lint`, `pnpm check`, and `pnpm build` passed. Lint reports two pre-existing informational
+  notices in `packages/core/src/events.test.ts`.
+- The full product test run completed with unrelated pre-existing Windows/path failures; the changed
+  Compose contract suite passed 6/6.
+- Ports 5200 and 5300 returned HTTP 200 after disposable tests; no personal/disposable containers
+  remained.
+- Two independent review passes found no blockers after fixes.
 
 Known residual risk:
 
@@ -364,8 +382,10 @@ Known residual risk:
 Artifacts:
 
 - Research status: complete
-- Durable decisions transferred to product documentation or ADRs: pending implementation
-- Residual work transferred to the repository's normal tracker: not applicable yet
+- Durable decisions transferred to product documentation or ADRs: complete in the operations
+  handbook and script READMEs
+- Residual work transferred to the repository's normal tracker: historical migration remains plan
+  0007; live activation remains an explicit owner-approved operation
 - Plan deleted after acceptance or explicitly retained: retain until implementation acceptance
 - Stale sections removed or updated: yes
 

@@ -41,7 +41,8 @@ repository cannot be recovered without it.
 # Always save state; save the exact runtime images only when their image-set ID is new.
 .\scripts\windows-personal\Backup-RakazoPersonal.ps1
 
-# Retry encrypted off-machine replication when the NAS is awake.
+# Retry encrypted off-machine replication when the NAS is awake. Each recovery point gets its own
+# snapshot identity, so a later failed sync does not erase the record of earlier successful copies.
 .\scripts\windows-personal\Sync-RakazoPersonalBackups.ps1
 
 # Inspect without exposing secrets.
@@ -54,7 +55,8 @@ Install optional desktop shortcuts only after reviewing their destination:
 .\scripts\windows-personal\Install-RakazoPersonalShortcuts.ps1 -ConfirmShortcutInstallation
 ```
 
-The Restore shortcut lists valid local recovery points, verifies the chosen point and image
+Downloaded Restic snapshots are verified and imported into the same local recovery catalogue, so
+they appear in the Restore shortcut without manual copying. The Restore shortcut lists valid local recovery points, verifies the chosen point and image
 archive, creates a safety backup of existing personal state, and requires the exact phrase
 `RESTORE rakazo-personal`. It never targets the official reference or source-development stacks.
 

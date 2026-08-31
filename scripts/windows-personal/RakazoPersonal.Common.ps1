@@ -92,6 +92,34 @@ function Get-RakazoPersonalImageReferences {
     )
 }
 
+function Assert-RakazoPersonalActiveImageSet {
+    param(
+        [Parameter(Mandatory)]$Context,
+        [switch]$VerifyLocalImages
+    )
+
+    if (-not (Test-Path -LiteralPath $Context.CurrentImageSetFile -PathType Leaf)) {
+        throw "No tested personal image set is active. Run Update-RakazoPersonal.ps1 first."
+    }
+    $manifest = Get-Content -Raw -LiteralPath $Context.CurrentImageSetFile | ConvertFrom-Json
+    [void](Assert-RakazoImageSetManifest -Manifest $manifest)
+    $recordedReferences = @($manifest.images | ForEach-Object { [string]$_.reference })
+    foreach ($reference in @(Get-RakazoPersonalImageReferences -EnvFile $Context.EnvFile)) {
+        if ($reference -notin $recordedReferences) {
+            throw "Personal environment references an image outside the active image set: $reference"
+        }
+    }
+    if ($VerifyLocalImages) {
+        foreach ($image in @($manifest.images)) {
+            $actual = Get-RakazoImageRecord -DockerContext $Context.DockerContext -Reference $image.reference
+            if ($actual.id -ne $image.id) {
+                throw "Local runtime image does not match the active manifest: $($image.reference)"
+            }
+        }
+    }
+    return $manifest
+}
+
 function Set-RakazoPersonalImageSet {
     param(
         [Parameter(Mandatory)]$Context,

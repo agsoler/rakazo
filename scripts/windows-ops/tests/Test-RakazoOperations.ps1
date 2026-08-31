@@ -69,11 +69,19 @@ New-Item -ItemType Directory -Path $testRoot | Out-Null
 try {
     Invoke-Test "path containment accepts descendants but not the root or siblings" {
         $root = Join-Path $testRoot "root"
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
         Assert-True (Test-RakazoPathWithin -Path (Join-Path $root "child\file") -Root $root)
         Assert-False (Test-RakazoPathWithin -Path $root -Root $root)
         Assert-False (Test-RakazoPathWithin -Path (Join-Path $testRoot "root-other") -Root $root)
         Assert-Throws { Assert-RakazoSafeChildPath -Path (Join-Path $root "..\escape") -AllowedRoot $root }
         Assert-Throws { Resolve-RakazoContainedPath -BaseDirectory (Join-Path $root "child") -RelativePath "..\..\escape.tar" -AllowedRoot $root }
+        if ($IsWindows) {
+            $outside = Join-Path $testRoot "outside"
+            New-Item -ItemType Directory -Path $outside | Out-Null
+            $junction = Join-Path $root "junction"
+            New-Item -ItemType Junction -Path $junction -Target $outside | Out-Null
+            Assert-Throws { Assert-RakazoSafeChildPath -Path (Join-Path $junction "archive.tar") -AllowedRoot $root }
+        }
     }
 
     Invoke-Test "environment files round-trip fake values without emitting them" {
@@ -139,6 +147,14 @@ try {
         Assert-Equal "release-1" $values.RAKAZO_IMAGE_TAG
         Assert-Equal "registry.example/official/computer" $values.RAKAZO_COMPUTER_IMAGE
         Assert-Equal "release-1" $values.RAKAZO_COMPUTER_IMAGE_TAG
+        [void](Assert-RakazoPersonalActiveImageSet -Context ([pscustomobject]@{
+            EnvFile = $envPath; CurrentImageSetFile = $currentPath; DockerContext = "fixture"
+        }))
+        $values.RAKAZO_IMAGE_TAG = "not-recorded"
+        Write-RakazoEnvFile -Values $values -Path $envPath
+        Assert-Throws { Assert-RakazoPersonalActiveImageSet -Context ([pscustomobject]@{
+            EnvFile = $envPath; CurrentImageSetFile = $currentPath; DockerContext = "fixture"
+        }) }
     }
 
     Invoke-Test "bot ownership accepts only managed homes beneath the requested appdata root" {
@@ -220,6 +236,92 @@ try {
         $replication = Get-Content -Raw -LiteralPath (Join-Path $deployment "replication-state.json") | ConvertFrom-Json
         Assert-Equal "pending" $replication.status
         Assert-Equal 1 @($replication.recoveryPoints).Count
+
+        $resticRepository = Join-Path $fixtureRoot "fake-restic-repository"
+        New-Item -ItemType Directory -Path $resticRepository | Out-Null
+        $passwordFile = Join-Path $fixtureRoot "restic-password.txt"
+        "fixture-password" | Set-Content -LiteralPath $passwordFile
+        $configPath = Join-Path $deployment "personal-config.json"
+        $personalConfig = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+        $personalConfig.nas.repository = $resticRepository
+        $personalConfig.nas.passwordFile = $passwordFile
+        Write-RakazoJsonFile -Value $personalConfig -Path $configPath
+        $fakeRestic = Join-Path $fixtureRoot "restic-fixture.cmd"
+        @(
+            '@echo off',
+            'if "%1"=="snapshots" echo []',
+            'if "%1"=="cat" echo {"id":"fixture-repository-one"}',
+            'if "%1"=="backup" echo {"message_type":"summary","snapshot_id":"fixture-snapshot"}',
+            'exit /b 0'
+        ) | Set-Content -LiteralPath $fakeRestic -Encoding ascii
+        & $sync -DeploymentRoot $deployment -RecoveryRoot $fixtureRoot -ResticCommand $fakeRestic
+        $replication = Get-Content -Raw -LiteralPath (Join-Path $deployment "replication-state.json") | ConvertFrom-Json
+        Assert-Equal "synced" $replication.status
+        Assert-Equal "synced" $replication.recoveryPoints[0].status
+        Assert-Equal "fixture-snapshot" $replication.recoveryPoints[0].snapshotId
+
+        $pointTwo = Join-Path $fixtureRoot "recovery-points\point-two"
+        Copy-Item -LiteralPath $point -Destination $pointTwo -Recurse
+        @('@echo off', 'if "%1"=="snapshots" echo []', 'if "%1"=="cat" echo {"id":"fixture-repository-one"}', 'if "%1"=="backup" exit /b 9', 'exit /b 0') |
+            Set-Content -LiteralPath $fakeRestic -Encoding ascii
+        Assert-Throws { & $sync -DeploymentRoot $deployment -RecoveryRoot $fixtureRoot -ResticCommand $fakeRestic }
+        $replication = Get-Content -Raw -LiteralPath (Join-Path $deployment "replication-state.json") | ConvertFrom-Json
+        Assert-Equal "synced" (@($replication.recoveryPoints | Where-Object recoveryPointId -eq "point-one")[0].status)
+        Assert-Equal "pending" (@($replication.recoveryPoints | Where-Object recoveryPointId -eq "point-two")[0].status)
+
+        @('@echo off', 'if "%1"=="snapshots" echo []', 'if "%1"=="cat" echo {"id":"fixture-repository-two"}', 'if "%1"=="backup" exit /b 9', 'exit /b 0') |
+            Set-Content -LiteralPath $fakeRestic -Encoding ascii
+        Assert-Throws { & $sync -DeploymentRoot $deployment -RecoveryRoot $fixtureRoot -ResticCommand $fakeRestic }
+        $replication = Get-Content -Raw -LiteralPath (Join-Path $deployment "replication-state.json") | ConvertFrom-Json
+        Assert-Equal "pending" $replication.status
+        Assert-True (@($replication.recoveryPoints | Where-Object status -ne "pending").Count -eq 0) "A new repository retained stale synced records"
+
+        $retrievalDeployment = Join-Path $testRoot "retrieval-deployment"
+        $localCatalogue = Join-Path $testRoot "retrieved-local-catalogue"
+        New-Item -ItemType Directory -Path $retrievalDeployment | Out-Null
+        Copy-Item -LiteralPath (Join-Path $point ".env") -Destination (Join-Path $retrievalDeployment ".env")
+        Copy-Item -LiteralPath (Join-Path $point "docker-compose.images.yml") -Destination (Join-Path $retrievalDeployment "docker-compose.images.yml")
+        Write-RakazoJsonFile -Value ([ordered]@{
+            schemaVersion = 1; kind = "rakazo-personal-config"; project = "rakazo-personal"
+            deploymentRoot = $retrievalDeployment; recoveryRoot = $localCatalogue
+            nas = [ordered]@{ repository = $resticRepository; passwordFile = $passwordFile }
+        }) -Path (Join-Path $retrievalDeployment "personal-config.json")
+        $retrievalDestination = Join-Path $testRoot "restic-retrieval-output"
+        $recoveredRoot = Join-Path $retrievalDestination (Split-Path -Leaf $localCatalogue)
+        $fakeRestore = Join-Path $testRoot "restic-restore-fixture.cmd"
+        @(
+            '@echo off',
+            "robocopy `"$fixtureRoot`" `"$recoveredRoot`" /E >nul",
+            'if errorlevel 8 exit /b 8',
+            'exit /b 0'
+        ) | Set-Content -LiteralPath $fakeRestore -Encoding ascii
+        $retrieve = Join-Path $PSScriptRoot "..\..\windows-personal\Get-RakazoPersonalRecoveryPoint.ps1"
+        & $retrieve -SnapshotId "fixture-snapshot" -DestinationDirectory $retrievalDestination -DeploymentRoot $retrievalDeployment -RecoveryRoot $localCatalogue -ResticCommand $fakeRestore
+        Assert-True (Test-Path -LiteralPath (Join-Path $localCatalogue "recovery-points\point-one\recovery-point.json"))
+        Assert-True (Test-Path -LiteralPath (Join-Path $localCatalogue "image-sets\$($imageSet.imageSetId)\rakazo-images.tar"))
+
+        $localImageDirectory = Join-Path $localCatalogue "image-sets\$($imageSet.imageSetId)"
+        $localArchive = Join-Path $localImageDirectory "rakazo-images.tar"
+        "different valid archive encoding" | Set-Content -LiteralPath $localArchive
+        $differentArchiveMetadata = [ordered]@{
+            schemaVersion = 1; kind = "rakazo-image-archive"; imageSetId = $imageSet.imageSetId
+            file = "rakazo-images.tar"; sha256 = Get-RakazoFileSha256 $localArchive; size = (Get-Item $localArchive).Length
+        }
+        Write-RakazoJsonFile -Value $differentArchiveMetadata -Path (Join-Path $localImageDirectory "archive.json")
+        Write-RakazoChecksums -Directory $localImageDirectory -RelativePaths @("image-set.json", "archive.json", "rakazo-images.tar")
+        Remove-Item -LiteralPath (Join-Path $localCatalogue "recovery-points\point-one") -Recurse -Force
+        Remove-Item -LiteralPath (Join-Path $localCatalogue "recovery-points\point-two") -Recurse -Force
+        $conflictDestination = Join-Path $testRoot "restic-conflict-output"
+        $conflictRoot = Join-Path $conflictDestination (Split-Path -Leaf $localCatalogue)
+        @(
+            '@echo off',
+            "robocopy `"$fixtureRoot`" `"$conflictRoot`" /E >nul",
+            'if errorlevel 8 exit /b 8',
+            'exit /b 0'
+        ) | Set-Content -LiteralPath $fakeRestore -Encoding ascii
+        Assert-Throws { & $retrieve -SnapshotId "fixture-snapshot" -DestinationDirectory $conflictDestination -DeploymentRoot $retrievalDeployment -RecoveryRoot $localCatalogue -ResticCommand $fakeRestore }
+        Assert-False (Test-Path -LiteralPath (Join-Path $localCatalogue "recovery-points\point-one")) "Conflicting point was published before verification"
+        Assert-True (Test-Path -LiteralPath (Join-Path $localCatalogue "recovery-points\.point-one.incomplete")) "Failed import evidence was not retained"
 
         $safeRelativePath = $manifest.imageArchive.relativePath
         $manifest.imageArchive.relativePath = "../../../outside.tar"

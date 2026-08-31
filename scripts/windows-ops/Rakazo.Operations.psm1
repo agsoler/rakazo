@@ -24,6 +24,33 @@ function Test-RakazoPathWithin {
     return $candidate.StartsWith($boundary + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
 }
 
+function Assert-RakazoNoReparsePoint {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Root,
+        [string]$Description = "target"
+    )
+
+    $candidate = Get-RakazoFullPath $Path
+    $boundary = Get-RakazoFullPath $Root
+    if (-not (Test-RakazoPathWithin -Path $candidate -Root $boundary -AllowRoot)) {
+        throw "The $Description is outside the configured root."
+    }
+    $current = $boundary
+    $segments = @()
+    $relative = [IO.Path]::GetRelativePath($boundary, $candidate)
+    if ($relative -ne ".") { $segments = @($relative -split '[\\/]') }
+    foreach ($segment in @(".") + $segments) {
+        if ($segment -ne ".") { $current = Join-Path $current $segment }
+        if (-not (Test-Path -LiteralPath $current)) { continue }
+        $item = Get-Item -LiteralPath $current -Force
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "The $Description traverses a reparse point and is not accepted: $current"
+        }
+    }
+}
+
 function Assert-RakazoSafeChildPath {
     [CmdletBinding()]
     param(
@@ -35,6 +62,7 @@ function Assert-RakazoSafeChildPath {
     if (-not (Test-RakazoPathWithin -Path $Path -Root $AllowedRoot)) {
         throw "The $Description must be a child of the configured root. Refusing path: $Path"
     }
+    Assert-RakazoNoReparsePoint -Path $Path -Root $AllowedRoot -Description $Description
 }
 
 function Resolve-RakazoContainedPath {
@@ -72,33 +100,10 @@ function Protect-RakazoPrivatePath {
         throw "Private path not found: $Path"
     }
     $item = Get-Item -LiteralPath $Path
-    $inheritance = if ($item.PSIsContainer) {
-        [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit
-    }
-    else {
-        [Security.AccessControl.InheritanceFlags]::None
-    }
-    $acl = Get-Acl -LiteralPath $Path
-    $acl.SetAccessRuleProtection($true, $false)
-    foreach ($rule in @($acl.Access)) {
-        [void]$acl.RemoveAccessRuleAll($rule)
-    }
-    $identities = @(
-        [Security.Principal.WindowsIdentity]::GetCurrent().User,
-        [Security.Principal.SecurityIdentifier]::new("S-1-5-18"),
-        [Security.Principal.SecurityIdentifier]::new("S-1-5-32-544")
-    )
-    foreach ($identity in $identities) {
-        $rule = [Security.AccessControl.FileSystemAccessRule]::new(
-            $identity,
-            [Security.AccessControl.FileSystemRights]::FullControl,
-            $inheritance,
-            [Security.AccessControl.PropagationFlags]::None,
-            [Security.AccessControl.AccessControlType]::Allow
-        )
-        $acl.AddAccessRule($rule)
-    }
-    Set-Acl -LiteralPath $Path -AclObject $acl
+    $permission = if ($item.PSIsContainer) { "(OI)(CI)F" } else { "(F)" }
+    $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $grants = @($currentSid, "S-1-5-18", "S-1-5-32-544") | ForEach-Object { "*${_}:$permission" }
+    [void](Invoke-RakazoNativeCommand -FilePath "icacls.exe" -ArgumentList (@($Path, "/inheritance:r", "/grant:r") + $grants) -Quiet)
 }
 
 function Read-RakazoEnvFile {
@@ -187,6 +192,7 @@ function Write-RakazoChecksums {
         if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
             throw "Checksum target not found: $target"
         }
+        Assert-RakazoNoReparsePoint -Path $target -Root $root -Description "checksum target"
         "$(Get-RakazoFileSha256 $target) *$($relativePath.Replace('\', '/'))"
     }
     $lines | Set-Content -LiteralPath (Join-Path $root $FileName) -Encoding ascii
@@ -206,7 +212,7 @@ function Test-RakazoChecksums {
     }
     $verified = [Collections.Generic.List[string]]::new()
     foreach ($line in Get-Content -LiteralPath $checksumPath) {
-        if ($line -notmatch '^(?<hash>[0-9a-fA-F]{64}) \*(?<name>.+)$') {
+        if ($line -notmatch '^(?<hash>[0-9a-fA-F]{64}) (?<mode>[ *])(?<name>.+)$') {
             throw "Malformed checksum line in ${checksumPath}: $line"
         }
         $name = $Matches.name
@@ -217,6 +223,7 @@ function Test-RakazoChecksums {
         if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
             throw "Checksum target not found: $name"
         }
+        Assert-RakazoNoReparsePoint -Path $target -Root $root -Description "checksum target"
         if ((Get-RakazoFileSha256 $target) -ne $Matches.hash.ToLowerInvariant()) {
             throw "Checksum mismatch: $name"
         }
@@ -631,6 +638,7 @@ function Complete-RakazoAtomicDirectory {
 Export-ModuleMember -Function @(
     "Assert-RakazoDockerVolumeOwnership",
     "Assert-RakazoImageSetManifest",
+    "Assert-RakazoNoReparsePoint",
     "Assert-RakazoRequiredChecksums",
     "Assert-RakazoSafeChildPath",
     "Complete-RakazoAtomicDirectory",

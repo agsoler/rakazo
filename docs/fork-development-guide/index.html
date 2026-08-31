@@ -431,7 +431,7 @@ git push origin main</code></pre>
 .\scripts\windows-personal\Backup-RakazoPersonal.ps1
 .\scripts\windows-personal\Sync-RakazoPersonalBackups.ps1</code></pre>
             </div>
-            <p>Every backup saves state. The exact image archive is saved only when the image-set identity changes. If encrypted off-machine storage is asleep, the local backup succeeds and Sync retries later.</p>
+            <p>Every backup saves state. The exact image archive is saved only when the image-set identity changes. Each recovery point has its own encrypted Restic snapshot record, so a later failed sync does not erase earlier success. If encrypted off-machine storage is asleep, the local backup succeeds and Sync retries later.</p>
             <p>On a shared NAS, give Rakazo an application-owned encrypted repository such as <code>\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic</code>. It stores recovery material; it is not a live Docker folder.</p>
           </div>
         </section>
@@ -539,7 +539,7 @@ winget install --id Git.Git -e --source winget</code></pre>
               <li>Install PowerShell 7 and Git, clone the fork, and run <code>Test-RakazoPersonalPrerequisites.ps1</code>.</li>
               <li>Install every missing prerequisite, including restic when retrieving the encrypted off-machine copy.</li>
               <li>Recover the restic password from its independent safe location; never put it in Git or command history.</li>
-              <li>Initialize an empty personal target and retrieve the selected recovery snapshot.</li>
+              <li>Initialize an empty personal target and retrieve the selected recovery snapshot. Retrieval verifies it and imports it into the Restore catalogue automatically.</li>
               <li>Verify its checksums and exact image archive before starting any restore.</li>
               <li>Use the guided Restore action. It affects only <code>rakazo-personal</code> and requires <code>RESTORE rakazo-personal</code>.</li>
               <li>Verify sign-in, bots, groups, conversations, files, models, and one disposable model interaction.</li>

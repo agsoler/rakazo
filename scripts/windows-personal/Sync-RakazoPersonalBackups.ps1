@@ -12,6 +12,7 @@ param(
     [string]$DockerContext = "desktop-linux",
     [string]$DeploymentRoot,
     [string]$RecoveryRoot,
+    [string]$ResticCommand = "restic",
     [switch]$InitializeRepository,
     [switch]$RunCheck
 )
@@ -25,17 +26,40 @@ $config = Assert-RakazoPersonalInitialized $context
 $repository = [string]$config.nas.repository
 $passwordFile = [string]$config.nas.passwordFile
 $statePath = Join-Path $context.DeploymentRoot "replication-state.json"
+$repositoryLocationId = Get-RakazoStringSha256 $repository.Trim().ToLowerInvariant()
 $pointDirectories = @(Get-ChildItem -LiteralPath $context.RecoveryPointRoot -Directory -ErrorAction SilentlyContinue | Where-Object Name -notlike ".*.incomplete" | Sort-Object Name)
 if (-not $pointDirectories.Count) { throw "No complete personal recovery points are available to replicate." }
+$previousRecords = @{}
+$previousState = $null
+if (Test-Path -LiteralPath $statePath -PathType Leaf) {
+    try {
+        $previousState = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
+        if ([string]$previousState.repositoryLocationId -eq $repositoryLocationId -and -not [string]::IsNullOrWhiteSpace([string]$previousState.repositoryId)) {
+            foreach ($record in @($previousState.recoveryPoints)) { $previousRecords[[string]$record.recoveryPointId] = $record }
+        }
+    }
+    catch { Write-Warning "Previous replication state is unreadable; each local point will be considered pending." }
+}
 $pointRecords = @($pointDirectories | ForEach-Object {
     $verified = & (Join-Path $PSScriptRoot "Test-RakazoPersonalRecoveryPoint.ps1") -RecoveryPointDirectory $_.FullName -AsObject
-    [ordered]@{ recoveryPointId = $_.Name; imageSetId = [string]$verified.Manifest.imageSetId; status = "pending" }
+    $id = $_.Name
+    $imageSetId = [string]$verified.Manifest.imageSetId
+    $previous = $previousRecords[$id]
+    if ($previous -and [string]$previous.status -eq "synced" -and [string]$previous.imageSetId -eq $imageSetId -and -not [string]::IsNullOrWhiteSpace([string]$previous.snapshotId)) {
+        [ordered]@{ recoveryPointId = $id; imageSetId = $imageSetId; status = "synced"; snapshotId = [string]$previous.snapshotId }
+    }
+    else {
+        [ordered]@{ recoveryPointId = $id; imageSetId = $imageSetId; status = "pending" }
+    }
 })
+$pendingRecords = @($pointRecords | Where-Object status -ne "synced")
 $state = [ordered]@{
     schemaVersion = 1
     kind = "rakazo-personal-replication-state"
-    status = "pending"
+    status = if ($pendingRecords.Count) { "pending" } else { "synced" }
     lastAttemptAt = [DateTime]::UtcNow.ToString("o")
+    repositoryLocationId = $repositoryLocationId
+    repositoryId = if ($previousState -and [string]$previousState.repositoryLocationId -eq $repositoryLocationId) { [string]$previousState.repositoryId } else { "" }
     recoveryPoints = $pointRecords
 }
 Write-RakazoJsonFile -Value $state -Path $statePath
@@ -48,7 +72,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($repository) -or [string]::IsNullOrWhiteSpace($passwordFile)) {
         throw "NAS replication is not configured. Set repository and passwordFile during initialization."
     }
-    if (-not (Get-Command restic -CommandType Application -ErrorAction SilentlyContinue)) {
+    if (-not (Get-Command $ResticCommand -CommandType Application -ErrorAction SilentlyContinue)) {
         throw "Restic is not installed. Local recovery points remain valid but are not off-machine."
     }
     if (-not (Test-Path -LiteralPath $passwordFile -PathType Leaf)) { throw "Restic password file is unavailable." }
@@ -60,33 +84,57 @@ try {
     }
     $env:RESTIC_REPOSITORY = $repository
     $env:RESTIC_PASSWORD_FILE = $passwordFile
-    $snapshots = Invoke-RakazoNativeCommand -FilePath "restic" -ArgumentList @("snapshots", "--json") -Quiet -AllowFailure
+    $snapshots = Invoke-RakazoNativeCommand -FilePath $ResticCommand -ArgumentList @("snapshots", "--json") -Quiet -AllowFailure
     if ($snapshots.ExitCode -ne 0) {
         if (-not $InitializeRepository) { throw "The restic repository is not initialized or could not be opened." }
-        Invoke-RakazoNativeCommand -FilePath "restic" -ArgumentList @("init") | Out-Null
+        Invoke-RakazoNativeCommand -FilePath $ResticCommand -ArgumentList @("init") | Out-Null
+    }
+    $repositoryConfigResult = Invoke-RakazoNativeCommand -FilePath $ResticCommand -ArgumentList @("cat", "config") -Quiet
+    $repositoryConfig = ($repositoryConfigResult.Output -join [Environment]::NewLine) | ConvertFrom-Json
+    $repositoryId = [string]$repositoryConfig.id
+    if ([string]::IsNullOrWhiteSpace($repositoryId)) { throw "Restic repository did not report an identity." }
+    if ([string]$state.repositoryId -ne $repositoryId) {
+        foreach ($pointRecord in $pointRecords) {
+            $pointRecord.status = "pending"
+            if ($pointRecord.Contains("snapshotId")) { $pointRecord.Remove("snapshotId") }
+        }
+        $pendingRecords = @($pointRecords)
+        $state.status = "pending"
+        $state.repositoryId = $repositoryId
+        $state.recoveryPoints = $pointRecords
+        Write-RakazoJsonFile -Value $state -Path $statePath
+        Protect-RakazoPrivatePath $statePath
     }
 
     $parent = Split-Path -Parent $context.RecoveryRoot
     $leaf = Split-Path -Leaf $context.RecoveryRoot
-    $tags = @("--tag", "rakazo-personal")
-    foreach ($pointRecord in $pointRecords) {
-        $tags += @("--tag", "recovery-point:$($pointRecord.recoveryPointId)")
-        $tags += @("--tag", "image-set:$($pointRecord.imageSetId)")
-    }
     Push-Location $parent
     try {
-        $backupResult = Invoke-RakazoNativeCommand -FilePath "restic" -ArgumentList (@("backup", $leaf, "--json") + $tags) -Quiet
+        foreach ($pointRecord in $pendingRecords) {
+            $pointPath = "$leaf/recovery-points/$($pointRecord.recoveryPointId)"
+            $imagePath = "$leaf/image-sets/$($pointRecord.imageSetId)"
+            $backupResult = Invoke-RakazoNativeCommand -FilePath $ResticCommand -ArgumentList @(
+                "backup", $pointPath, $imagePath, "--json",
+                "--tag", "rakazo-personal",
+                "--tag", "recovery-point:$($pointRecord.recoveryPointId)",
+                "--tag", "image-set:$($pointRecord.imageSetId)"
+            ) -Quiet
+            $summary = @($backupResult.Output | ForEach-Object {
+                try { $_ | ConvertFrom-Json -ErrorAction Stop } catch { $null }
+            } | Where-Object { $_ -and $_.message_type -eq "summary" } | Select-Object -Last 1)
+            if (-not $summary.Count -or [string]::IsNullOrWhiteSpace([string]$summary[0].snapshot_id)) {
+                throw "Restic completed without reporting a snapshot ID for $($pointRecord.recoveryPointId)."
+            }
+            $pointRecord.status = "synced"
+            $pointRecord["snapshotId"] = [string]$summary[0].snapshot_id
+            $state.recoveryPoints = $pointRecords
+            Write-RakazoJsonFile -Value $state -Path $statePath
+            Protect-RakazoPrivatePath $statePath
+        }
     }
     finally { Pop-Location }
 
-    if ($RunCheck) { Invoke-RakazoNativeCommand -FilePath "restic" -ArgumentList @("check") | Out-Null }
-    $summary = @($backupResult.Output | ForEach-Object {
-        try { $_ | ConvertFrom-Json -ErrorAction Stop } catch { $null }
-    } | Where-Object { $_ -and $_.message_type -eq "summary" } | Select-Object -Last 1)
-    if (-not $summary.Count -or [string]::IsNullOrWhiteSpace([string]$summary[0].snapshot_id)) {
-        throw "Restic completed without reporting a snapshot ID."
-    }
-    foreach ($pointRecord in $pointRecords) { $pointRecord.status = "synced"; $pointRecord["snapshotId"] = [string]$summary[0].snapshot_id }
+    if ($RunCheck) { Invoke-RakazoNativeCommand -FilePath $ResticCommand -ArgumentList @("check") | Out-Null }
     $state.status = "synced"
     $state["syncedAt"] = [DateTime]::UtcNow.ToString("o")
     $state.recoveryPoints = $pointRecords
@@ -95,7 +143,8 @@ try {
     Write-Host "Personal recovery points replicated to encrypted off-machine storage."
 }
 catch {
-    $state.status = "pending"
+    $state.status = if (@($pointRecords | Where-Object status -ne "synced").Count) { "pending" } else { "synced" }
+    $state["lastAttemptStatus"] = "failed"
     $state["lastError"] = $_.Exception.Message
     Write-RakazoJsonFile -Value $state -Path $statePath
     Protect-RakazoPrivatePath $statePath

@@ -21,14 +21,7 @@ $ErrorActionPreference = "Stop"
 
 $context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 [void](Assert-RakazoPersonalInitialized $context)
-if (-not (Test-Path -LiteralPath $context.CurrentImageSetFile -PathType Leaf)) {
-    throw "No tested personal image set is active. Run Update-RakazoPersonal.ps1 first."
-}
-$currentImageSet = Get-Content -Raw -LiteralPath $context.CurrentImageSetFile | ConvertFrom-Json
-foreach ($image in @($currentImageSet.images)) {
-    $actual = Get-RakazoImageRecord -DockerContext $DockerContext -Reference $image.reference
-    if ($actual.id -ne $image.id) { throw "Local runtime image does not match the active manifest: $($image.reference)" }
-}
+[void](Assert-RakazoPersonalActiveImageSet -Context $context -VerifyLocalImages)
 $composeArgs = Get-RakazoPersonalComposeArguments $context
 Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($composeArgs + @("config", "--quiet")) -Quiet | Out-Null
 Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($composeArgs + @("up", "-d")) | Out-Null

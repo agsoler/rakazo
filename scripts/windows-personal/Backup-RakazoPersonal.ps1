@@ -21,16 +21,8 @@ $ErrorActionPreference = "Stop"
 
 $context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 $config = Assert-RakazoPersonalInitialized $context
-if (-not (Test-Path -LiteralPath $context.CurrentImageSetFile -PathType Leaf)) {
-    throw "No deployed personal image set is recorded; there is no stable deployment to back up."
-}
-$imageSet = Get-Content -Raw -LiteralPath $context.CurrentImageSetFile | ConvertFrom-Json
-[void](Assert-RakazoImageSetManifest -Manifest $imageSet)
+$imageSet = Assert-RakazoPersonalActiveImageSet -Context $context -VerifyLocalImages
 $imageRefs = @($imageSet.images | ForEach-Object { [string]$_.reference })
-foreach ($image in @($imageSet.images)) {
-    $actual = Get-RakazoImageRecord -DockerContext $DockerContext -Reference $image.reference
-    if ($actual.id -ne $image.id) { throw "Deployed image reference no longer matches its manifest: $($image.reference)" }
-}
 
 New-Item -ItemType Directory -Force -Path $context.ImageSetRoot, $context.RecoveryPointRoot | Out-Null
 $imageSetDirectory = Join-Path $context.ImageSetRoot $imageSet.imageSetId

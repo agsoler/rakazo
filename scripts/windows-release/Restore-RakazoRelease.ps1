@@ -44,14 +44,24 @@ Write-Host "  Target project: $Project"
 Write-Host "  Target ports: $WebPort / $ApiPort"
 Write-Host "  Recovery point: $($verified.Path)"
 Write-Host "  Image set: $($verified.Manifest.imageSetId)"
-$safetyPoint = "none"
-if ((Test-Path -LiteralPath $envFile) -and (Test-Path -LiteralPath $composeFile)) {
-    $volumeProbe = Invoke-RakazoNativeCommand -FilePath "docker" -ArgumentList @("--context", $DockerContext, "volume", "inspect", $appDataVolume) -Quiet -AllowFailure
-    if ($volumeProbe.ExitCode -eq 0) {
-        [void](Assert-RakazoDockerVolumeOwnership -DockerContext $DockerContext -VolumeName $appDataVolume -ExpectedProject $Project -ExpectedVolume "appdata")
-        & (Join-Path $PSScriptRoot "Backup-RakazoRelease.ps1") -DeploymentRoot $deployment -BackupRoot $BackupRoot -Project $Project -DockerContext $DockerContext
-        $safetyPoint = (Get-ChildItem -LiteralPath (Join-Path (Get-RakazoFullPath $BackupRoot) "recovery-points") -Directory | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).FullName
+$safetyPoint = "none (target has no release volumes)"
+$existingVolumes = @()
+foreach ($volume in @(
+    [pscustomobject]@{ Name = $postgresVolume; Logical = "pgdata" },
+    [pscustomobject]@{ Name = $appDataVolume; Logical = "appdata" }
+)) {
+    $probe = Invoke-RakazoNativeCommand -FilePath "docker" -ArgumentList @("--context", $DockerContext, "volume", "inspect", $volume.Name) -Quiet -AllowFailure
+    if ($probe.ExitCode -eq 0) {
+        [void](Assert-RakazoDockerVolumeOwnership -DockerContext $DockerContext -VolumeName $volume.Name -ExpectedProject $Project -ExpectedVolume $volume.Logical)
+        $existingVolumes += $volume.Name
     }
+}
+if ($existingVolumes.Count) {
+    if ($existingVolumes.Count -ne 2 -or -not (Test-Path -LiteralPath $envFile -PathType Leaf) -or -not (Test-Path -LiteralPath $composeFile -PathType Leaf)) {
+        throw "Existing release state is incomplete and cannot be safety-backed up. No restore changes were made. Repair or preserve the existing volumes before retrying."
+    }
+    & (Join-Path $PSScriptRoot "Backup-RakazoRelease.ps1") -DeploymentRoot $deployment -BackupRoot $BackupRoot -Project $Project -DockerContext $DockerContext
+    $safetyPoint = (Get-ChildItem -LiteralPath (Join-Path (Get-RakazoFullPath $BackupRoot) "recovery-points") -Directory | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).FullName
 }
 
 $expectedPhrase = "RESTORE $Project"
