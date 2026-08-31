@@ -3,6 +3,82 @@ import type { PrismaClient } from "./client.js";
 import { createGroupRepos } from "./groups.js";
 import { IsolationError } from "./scope.js";
 
+describe("listGroups", () => {
+  const actor = {
+    workspaceId: "workspace-1",
+    userId: "user-1",
+    email: "user@example.com",
+    isDeploymentOwner: true,
+  };
+
+  function groupWithRuns(input: {
+    botRuns?: Array<{ status: string; threadId: string }>;
+    groupRuns?: Array<{ botId: string; status: string }>;
+  }) {
+    return {
+      id: "group-1",
+      workspaceId: actor.workspaceId,
+      userId: actor.userId,
+      name: "Research",
+      pinned: false,
+      sectionId: null,
+      archivedAt: null,
+      createdAt: new Date("2026-08-31T10:00:00.000Z"),
+      updatedAt: new Date("2026-08-31T10:00:00.000Z"),
+      thread: {
+        id: "group-thread",
+        unread: false,
+        messages: [],
+        runs: input.groupRuns ?? [],
+      },
+      members: [
+        {
+          bot: {
+            id: "bot-1",
+            name: "Researcher",
+            color: "#8B5CF6",
+            runs: input.botRuns ?? [],
+          },
+        },
+        {
+          bot: {
+            id: "bot-2",
+            name: "Writer",
+            color: "#06B6D4",
+            runs: [],
+          },
+        },
+      ],
+    };
+  }
+
+  it("keeps a group idle when its member is running in a personal thread", async () => {
+    const findMany = vi
+      .fn()
+      .mockResolvedValue([
+        groupWithRuns({ botRuns: [{ status: "running", threadId: "personal-thread" }] }),
+      ]);
+    const prisma = { chatGroup: { findMany } } as unknown as PrismaClient;
+
+    const groups = await createGroupRepos(prisma).listGroups(actor);
+
+    expect(groups[0]?.members[0]?.status).toBe("idle");
+  });
+
+  it("reports activity that belongs to the group thread", async () => {
+    const findMany = vi
+      .fn()
+      .mockResolvedValue([
+        groupWithRuns({ groupRuns: [{ botId: "bot-1", status: "waiting_input" }] }),
+      ]);
+    const prisma = { chatGroup: { findMany } } as unknown as PrismaClient;
+
+    const groups = await createGroupRepos(prisma).listGroups(actor);
+
+    expect(groups[0]?.members[0]?.status).toBe("waiting_input");
+  });
+});
+
 describe("archiveGroup", () => {
   const actor = {
     workspaceId: "workspace-1",

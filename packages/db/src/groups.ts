@@ -15,8 +15,7 @@ const activeRunStatuses = [...ACTIVE_RUN_STATUSES];
 const activeRunSelection = {
   where: { status: { in: activeRunStatuses } },
   orderBy: { createdAt: "desc" as const },
-  take: 1,
-  select: { status: true },
+  select: { botId: true, status: true },
 } as const;
 
 type GroupRecord = {
@@ -36,13 +35,13 @@ type GroupRecord = {
     id: string;
     unread: boolean;
     messages: Array<{ blocks: unknown }>;
+    runs: Array<{ botId: string; status: string }>;
   } | null;
   members: Array<{
     bot: {
       id: string;
       name: string;
       color: string;
-      runs: Array<{ status: string }>;
     };
   }>;
 };
@@ -63,8 +62,9 @@ function previewFromBlocks(blocks: unknown): string {
 }
 
 function mapGroup(group: GroupRecord): Group {
-  if (!group.thread) throw new IsolationError("Group is missing its thread");
-  const preview = previewFromBlocks(group.thread.messages[0]?.blocks);
+  const thread = group.thread;
+  if (!thread) throw new IsolationError("Group is missing its thread");
+  const preview = previewFromBlocks(thread.messages[0]?.blocks);
   return {
     id: group.id,
     workspaceId: group.workspaceId,
@@ -76,11 +76,11 @@ function mapGroup(group: GroupRecord): Group {
       botId: member.bot.id,
       name: member.bot.name,
       color: member.bot.color,
-      status: member.bot.runs[0]?.status ?? "idle",
+      status: thread.runs.find((run) => run.botId === member.bot.id)?.status ?? "idle",
     })),
-    threadId: group.thread.id,
+    threadId: thread.id,
     preview,
-    unread: group.thread.unread,
+    unread: thread.unread,
     updatedAt: group.updatedAt.toISOString(),
     createdAt: group.createdAt.toISOString(),
   };
@@ -123,6 +123,7 @@ const groupInclude = {
   thread: {
     include: {
       messages: { orderBy: { seq: "desc" as const }, take: 1 },
+      runs: activeRunSelection,
     },
   },
   members: {
@@ -133,7 +134,6 @@ const groupInclude = {
           id: true,
           name: true,
           color: true,
-          runs: activeRunSelection,
         },
       },
     },
@@ -142,7 +142,7 @@ const groupInclude = {
 } as const;
 
 const groupTargetInclude = {
-  thread: { select: { id: true } },
+  thread: { select: { id: true, runs: activeRunSelection } },
   members: {
     where: { bot: { archivedAt: null } },
     include: {
@@ -151,7 +151,6 @@ const groupTargetInclude = {
           id: true,
           name: true,
           color: true,
-          runs: activeRunSelection,
         },
       },
     },
