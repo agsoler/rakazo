@@ -133,7 +133,13 @@ describe("filterBuiltinToolsForThread", () => {
       filterBuiltinToolsForThread(tools, "group-1"),
       "routine",
     ).map((tool) => tool.name);
-    expect(groupTools).toEqual(["handoff_to_bot", "schedule_list", "schedule_cancel", "remember"]);
+    expect(groupTools).toEqual([
+      "handoff_to_bot",
+      "message_bot",
+      "schedule_list",
+      "schedule_cancel",
+      "remember",
+    ]);
     expect(
       filterBuiltinToolsForRun(filterBuiltinToolsForThread(tools, "group-1"), "user").map(
         (tool) => tool.name,

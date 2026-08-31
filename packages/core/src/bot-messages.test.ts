@@ -213,6 +213,17 @@ describe("directory", () => {
 });
 
 describe("group members roster", () => {
+  it("describes a focused group without offering an impossible handoff", () => {
+    const context = renderGroupMembersContext(
+      "Private campaign",
+      [{ id: "b_1", name: "Narrator" }],
+      { id: "b_1", name: "Narrator" },
+    );
+    expect(context).toContain("focused conversation with the user");
+    expect(context).not.toContain("handoff_to_bot");
+    expect(context).not.toContain("another teammate");
+  });
+
   it("lists titles and descriptions so group bots can pick a specialist", () => {
     const context = renderGroupMembersContext(
       "Launch desk",

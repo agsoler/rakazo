@@ -199,8 +199,11 @@ export function inferScript(
       },
     ];
   }
-  if (lower.includes("create a group named") && lower.includes("with bot ids")) {
-    const name = /create a group named\s+(.+?)\s+with bot ids/i.exec(prompt)?.[1]?.trim() ?? "Team";
+  if (lower.includes("create a group named")) {
+    const name =
+      /create a group named\s+(.+?)(?:\s+with bot ids|;\s*shared context|;\s*creator context|$)/i
+        .exec(prompt)?.[1]
+        ?.trim() ?? "Team";
     const ids = /with bot ids\s+([^;]+)/i
       .exec(prompt)?.[1]
       ?.split(",")

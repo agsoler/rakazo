@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { GROUP_MEMBER_MAX, GROUP_MEMBER_MIN } from "./group-limits.js";
 import { Id } from "./ids.js";
 import { McpTransportSchema } from "./mcp.js";
 
@@ -93,7 +94,7 @@ export const MessageBlock = z.discriminatedUnion("kind", [
     kind: z.literal("child_group"),
     groupId: Id,
     name: z.string(),
-    memberCount: z.number().int().min(2).max(6),
+    memberCount: z.number().int().min(GROUP_MEMBER_MIN).max(GROUP_MEMBER_MAX),
   }),
   z.object({
     kind: z.literal("card"),

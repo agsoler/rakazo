@@ -447,6 +447,13 @@ describe("mobile thread event reduction", () => {
         ]),
       ),
     ).toBe("Group Project team (2 members)");
+    expect(
+      blockText(
+        mobileMessage("group-2", [
+          { kind: "child_group", groupId: "group-2", name: "Focus room", memberCount: 1 },
+        ]),
+      ),
+    ).toBe("Group Focus room (1 member)");
   });
 
   it("navigates a pressed child-group card to the mobile group thread", () => {

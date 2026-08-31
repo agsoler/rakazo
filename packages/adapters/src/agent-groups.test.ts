@@ -69,6 +69,33 @@ describe("createAgentGroup", () => {
     );
   });
 
+  it.each([undefined, []])(
+    "creates a focused group with only the creator from %j",
+    async (memberBotIds) => {
+      createGroup.mockResolvedValueOnce({
+        id: "group-1",
+        name: "Private campaign",
+        members: [{}],
+        threadId: "thread-1",
+      });
+
+      await expect(
+        createAgentGroup(fakePrisma(), {
+          creator,
+          createKey: "effect-solo",
+          name: "Private campaign",
+          memberBotIds,
+          sharedContext: "Keep this story separate from the main conversation.",
+        }),
+      ).resolves.toMatchObject({ ok: true, memberCount: 1 });
+
+      expect(createGroup).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ botIds: ["creator-1"] }),
+      );
+    },
+  );
+
   it("stores shared context without creator-only context", async () => {
     await createAgentGroup(fakePrisma(), {
       creator,
@@ -121,8 +148,7 @@ describe("createAgentGroup", () => {
   it.each([
     [["creator-1"], "Do not include the creating bot"],
     [["bot-2", "bot-2"], "distinct"],
-    [[], "between 1 and 5"],
-    [["a", "b", "c", "d", "e", "f"], "between 1 and 5"],
+    [["a", "b", "c", "d", "e", "f"], "up to 5"],
   ])("rejects invalid member IDs %#", async (memberBotIds, message) => {
     const result = await createAgentGroup(fakePrisma(), {
       creator,

@@ -246,7 +246,7 @@ describe("destroyBot", () => {
     expect(removeArtifact).toHaveBeenCalledWith("stored-artifact", context);
   });
 
-  it("dissolves groups with fewer than two active members after deleting the bot", async () => {
+  it("dissolves groups with no active members after deleting the bot", async () => {
     const deleteGroups = vi.fn().mockResolvedValue({ count: 1 });
     const deleteMemberships = vi.fn().mockResolvedValue({ count: 1 });
     const cancel = vi.fn().mockResolvedValue(undefined);
@@ -298,6 +298,11 @@ describe("destroyBot", () => {
                 { botId: "bot-3", bot: { archivedAt: null } },
               ],
             },
+            {
+              id: "group-4",
+              thread: { id: "thread-4" },
+              members: [{ botId: "bot-1", bot: { archivedAt: null } }],
+            },
           ]),
           deleteMany: deleteGroups,
         },
@@ -342,7 +347,7 @@ describe("destroyBot", () => {
       { deleteMemories: true },
     );
 
-    expect(deleteGroups).toHaveBeenCalledWith({ where: { id: { in: ["group-1", "group-3"] } } });
+    expect(deleteGroups).toHaveBeenCalledWith({ where: { id: { in: ["group-4"] } } });
     expect(deleteMemberships).toHaveBeenCalledWith({ where: { botId: "bot-1" } });
     expect(deleteMemberships.mock.invocationCallOrder[0]!).toBeLessThan(
       deleteGroups.mock.invocationCallOrder[0]!,
@@ -353,7 +358,7 @@ describe("destroyBot", () => {
     expect(findRuns).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          threadId: { in: ["thread-1", "thread-3"] },
+          threadId: { in: ["thread-4"] },
         }),
       }),
     );

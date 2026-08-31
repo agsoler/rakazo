@@ -4977,7 +4977,11 @@ const MessageView = memo(function MessageView({
                   </span>
                 </div>
                 <div className="mt-2 text-[14.5px] text-[#A8A8AD]">
-                  <Trans>{block.memberCount} members · Ready when you are</Trans>
+                  {block.memberCount === 1 ? (
+                    <Trans>1 member · Ready when you are</Trans>
+                  ) : (
+                    <Trans>{block.memberCount} members · Ready when you are</Trans>
+                  )}
                 </div>
               </BuiCard>
             </button>
