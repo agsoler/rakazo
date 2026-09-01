@@ -482,7 +482,7 @@ git push origin main</code></pre>
 # After encrypted off-machine replication has been configured:
 .\scripts\windows-personal\Sync-RakazoPersonalBackups.ps1</code></pre>
             </div>
-            <p>Every backup saves state. The exact image archive is saved only when the image-set identity changes. Each recovery point has its own encrypted Restic snapshot record, so a later failed sync does not erase earlier success. If encrypted off-machine storage is asleep, the local backup succeeds and Sync retries later.</p>
+            <p>Every backup saves state. This includes the database, the complete Team Computer home, deployment secrets, and—when configured—the maintenance bot's read-only PostgreSQL login and grants. The exact image archive is saved only when the image-set identity changes. Each recovery point has its own encrypted Restic snapshot record, so a later failed sync does not erase earlier success. If encrypted off-machine storage is asleep, the local backup succeeds and Sync retries later.</p>
             <p>The first Update also records the private deployment identity <code>rakazo-personal</code>. Start, Backup, and Restore check it before acting. This is the safety boundary that gives dynamic bot computers their personal prefix and stops them being confused with development or release containers.</p>
             <p>On a shared NAS, give Rakazo an application-owned encrypted repository such as <code>\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic</code>. The placeholder keeps this public guide machine-neutral. It stores recovery material; it is not a live Docker folder.</p>
           </div>

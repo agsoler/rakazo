@@ -98,6 +98,48 @@ try {
         "--format=custom", "--no-owner", "--no-privileges"
     )) -OutputPath $dumpPath
 
+    # pg_dump deliberately excludes login roles. Preserve the optional maintenance reader separately
+    # so its SCRAM password and read-only policy survive a full PostgreSQL volume replacement.
+    $globalsPath = Join-Path $paths.Incomplete "postgres-globals.tmp.sql"
+    Invoke-RakazoNativeToFile -FilePath "docker" -ArgumentList (@(
+        "--context", $DockerContext
+    ) + $composeArgs + @(
+        "exec", "-T", "postgres", "pg_dumpall", "-U", "rakazo", "--globals-only"
+    )) -OutputPath $globalsPath
+    $readerRoleStatements = @(
+        Get-Content -LiteralPath $globalsPath |
+            Where-Object { $_ -match '^ALTER ROLE rakazo_bot_reader(?:\s|;)' }
+    )
+    Remove-Item -LiteralPath $globalsPath -Force
+    $readerRoleArtifact = $null
+    if ($readerRoleStatements.Count) {
+        if (-not ($readerRoleStatements | Where-Object { $_ -match '\sPASSWORD\s' })) {
+            throw "The rakazo_bot_reader role exists, but its password was not present in the PostgreSQL globals dump."
+        }
+        $readerRoleArtifact = "rakazo-readonly-role.sql"
+        @(
+            '-- Private recovery artifact: contains the SCRAM password hash for rakazo_bot_reader.'
+            'DO $do$'
+            'BEGIN'
+            '  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ''rakazo_bot_reader'') THEN'
+            '    CREATE ROLE rakazo_bot_reader;'
+            '  END IF;'
+            'END'
+            '$do$;'
+        ) + $readerRoleStatements + @(
+            'ALTER ROLE rakazo_bot_reader SET default_transaction_read_only = on;'
+            'REVOKE ALL PRIVILEGES ON DATABASE rakazo FROM rakazo_bot_reader;'
+            'GRANT CONNECT ON DATABASE rakazo TO rakazo_bot_reader;'
+            'REVOKE ALL PRIVILEGES ON SCHEMA public FROM rakazo_bot_reader;'
+            'GRANT USAGE ON SCHEMA public TO rakazo_bot_reader;'
+            'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM rakazo_bot_reader;'
+            'GRANT SELECT ON ALL TABLES IN SCHEMA public TO rakazo_bot_reader;'
+            'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM rakazo_bot_reader;'
+            'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL PRIVILEGES ON TABLES FROM rakazo_bot_reader;'
+            'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO rakazo_bot_reader;'
+        ) | Set-Content -LiteralPath (Join-Path $paths.Incomplete $readerRoleArtifact) -Encoding utf8
+    }
+
     Invoke-RakazoDocker -DockerContext $DockerContext -Arguments @(
         "run", "--rm",
         "--mount", "source=$($context.AppDataVolume),target=/data,readonly",
@@ -107,6 +149,15 @@ try {
     Copy-Item -LiteralPath $context.EnvFile -Destination (Join-Path $paths.Incomplete ".env")
     Copy-Item -LiteralPath $context.ComposeFile -Destination (Join-Path $paths.Incomplete "docker-compose.images.yml")
     Copy-Item -LiteralPath $context.CurrentImageSetFile -Destination (Join-Path $paths.Incomplete "image-set.json")
+
+    $state = [ordered]@{
+        database = "rakazo.pgdump"
+        appdata = "rakazo-appdata.tar.gz"
+        environment = ".env"
+        compose = "docker-compose.images.yml"
+        imageManifest = "image-set.json"
+    }
+    if ($readerRoleArtifact) { $state.readonlyDatabaseRole = $readerRoleArtifact }
 
     $manifest = [ordered]@{
         schemaVersion = 1
@@ -121,13 +172,7 @@ try {
             size = [long]$archiveMetadata.size
             capturedThisRun = $capturedImages
         }
-        state = [ordered]@{
-            database = "rakazo.pgdump"
-            appdata = "rakazo-appdata.tar.gz"
-            environment = ".env"
-            compose = "docker-compose.images.yml"
-            imageManifest = "image-set.json"
-        }
+        state = $state
         environment = [ordered]@{ webPort = $context.WebPort; apiPort = $context.ApiPort }
     }
     Write-RakazoJsonFile -Value $manifest -Path (Join-Path $paths.Incomplete "recovery-point.json")
@@ -143,10 +188,12 @@ Restore only with scripts/windows-personal/Restore-RakazoPersonal.ps1. The resto
 checksums and image identity, creates a safety backup when personal state already exists, and
 requires an exact confirmation phrase before replacing database or appdata.
 "@ | Set-Content -LiteralPath (Join-Path $paths.Incomplete "RECOVERY.txt") -Encoding utf8
-    Write-RakazoChecksums -Directory $paths.Incomplete -RelativePaths @(
+    $recoveryFiles = @(
         "rakazo.pgdump", "rakazo-appdata.tar.gz", ".env", "docker-compose.images.yml",
         "image-set.json", "recovery-point.json", "RECOVERY.txt"
     )
+    if ($readerRoleArtifact) { $recoveryFiles += $readerRoleArtifact }
+    Write-RakazoChecksums -Directory $paths.Incomplete -RelativePaths $recoveryFiles
     Complete-RakazoAtomicDirectory -IncompletePath $paths.Incomplete -FinalPath $paths.Final -AllowedRoot $context.RecoveryPointRoot
     $complete = $true
 }
@@ -161,7 +208,21 @@ finally {
         Invoke-RakazoNativeCommand -FilePath "docker" -ArgumentList (@("--context", $DockerContext) + $composeArgs + @("stop", "postgres")) -Quiet -AllowFailure | Out-Null
     }
     foreach ($botId in $stoppedBots) {
-        Invoke-RakazoNativeCommand -FilePath "docker" -ArgumentList @("--context", $DockerContext, "start", $botId) -Quiet -AllowFailure | Out-Null
+        $botRestarted = $false
+        for ($attempt = 0; $attempt -lt 3; $attempt++) {
+            Invoke-RakazoNativeCommand -FilePath "docker" -ArgumentList @("--context", $DockerContext, "start", $botId) -Quiet -AllowFailure | Out-Null
+            $runningProbe = Invoke-RakazoNativeCommand -FilePath "docker" -ArgumentList @(
+                "--context", $DockerContext, "inspect", "--format", "{{.State.Running}}", $botId
+            ) -Quiet -AllowFailure
+            if ($runningProbe.ExitCode -eq 0 -and ($runningProbe.Output -join "").Trim() -eq "true") {
+                $botRestarted = $true
+                break
+            }
+            Start-Sleep -Seconds 1
+        }
+        if (-not $botRestarted) {
+            Write-Warning "Team Computer $botId was stopped for backup but did not restart automatically. Its persistent home remains intact."
+        }
     }
     if (-not $complete -and (Test-Path -LiteralPath $paths.Incomplete)) {
         Write-Warning "Incomplete recovery data retained for diagnosis: $($paths.Incomplete)"
