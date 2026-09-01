@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $modulePath = Join-Path $PSScriptRoot "..\Rakazo.Operations.psm1"
 Import-Module $modulePath -Force
-. (Join-Path $PSScriptRoot "..\..\windows-personal\RakazoPersonal.Common.ps1")
+. (Join-Path $PSScriptRoot "..\..\windows-migration\RakazoMigration.Common.ps1")
 
 $script:Passed = 0
 $script:Failed = 0
@@ -94,6 +94,25 @@ try {
         Assert-Equal "value" $parsed.SAFE_NAME
         Assert-Equal "not-a-real-secret" $parsed.FAKE_SECRET
         Assert-False (($output | Out-String).Contains("not-a-real-secret")) "Secret value was written to output"
+    }
+
+    Invoke-Test "cross-deployment imports discard only ephemeral computer runtime state" {
+        $sql = Get-RakazoMigrationComputerRuntimeResetSql
+        foreach ($fragment in @(
+            "DELETE FROM computer_execution_leases",
+            "state = 'stopped'",
+            '"providerRef" = NULL',
+            '"screenUrl" = NULL',
+            '"controlHolder" = ''none''',
+            '"controlLeaseId" = NULL',
+            '"executionRunId" = NULL',
+            '"computerSwitching" = FALSE'
+        )) {
+            Assert-True ($sql.Contains($fragment)) "Missing runtime reset fragment: $fragment"
+        }
+        foreach ($durableColumn in @('"homeKey"', '"homeRevision"')) {
+            Assert-False ($sql.Contains($durableColumn)) "Runtime reset must not alter $durableColumn"
+        }
     }
 
     Invoke-Test "checksums pass intact files and reject tampering" {

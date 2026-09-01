@@ -190,6 +190,46 @@ function Wait-RakazoMigrationPostgres {
     throw "Migration PostgreSQL did not become ready."
 }
 
+function Get-RakazoMigrationComputerRuntimeResetSql {
+    return @'
+BEGIN;
+DELETE FROM computer_execution_leases;
+UPDATE computers
+SET state = 'stopped',
+    "providerRef" = NULL,
+    "screenUrl" = NULL,
+    "controlHolder" = 'none',
+    "controlLeaseId" = NULL,
+    "controlLeaseExpiresAt" = NULL,
+    "controlBotId" = NULL,
+    "controlRunId" = NULL,
+    "controlFence" = 0,
+    "executionRunId" = NULL,
+    "executionBotId" = NULL,
+    "executionLeaseExpiresAt" = NULL,
+    "executionFence" = 0;
+UPDATE bots SET "computerSwitching" = FALSE WHERE "computerSwitching" = TRUE;
+COMMIT;
+'@
+}
+
+function Reset-RakazoMigrationComputerRuntime {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$DockerContext,
+        [Parameter(Mandatory)][string[]]$ComposeArguments,
+        [Parameter(Mandatory)][string]$DatabaseUser,
+        [Parameter(Mandatory)][string]$DatabaseName
+    )
+
+    # Provider references, screen URLs, and leases identify live processes owned by the source
+    # deployment. Bot homes and their homeRevision are durable and deliberately remain untouched.
+    Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($ComposeArguments + @(
+        "exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1",
+        "-U", $DatabaseUser, "-d", $DatabaseName, "-c", (Get-RakazoMigrationComputerRuntimeResetSql)
+    )) -Quiet | Out-Null
+}
+
 function Restore-RakazoMigrationState {
     [CmdletBinding()]
     param(
@@ -223,6 +263,8 @@ function Restore-RakazoMigrationState {
             "exec", "-T", "postgres", "pg_restore", "-U", $DatabaseUser, "-d", $DatabaseName,
             "--clean", "--if-exists", "--no-owner", "--no-privileges", "/tmp/rakazo-migration.pgdump"
         )) -Quiet | Out-Null
+        Reset-RakazoMigrationComputerRuntime -DockerContext $DockerContext -ComposeArguments $ComposeArguments `
+            -DatabaseUser $DatabaseUser -DatabaseName $DatabaseName
     }
     finally {
         Invoke-RakazoNativeCommand -FilePath "docker" -ArgumentList (@("--context", $DockerContext) + $ComposeArguments + @(
