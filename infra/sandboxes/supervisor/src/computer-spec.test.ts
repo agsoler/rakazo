@@ -24,6 +24,7 @@ import {
   legacyContainerCanBeAdopted,
   legacyNetworkOwnedSolelyBy,
   resolveComputerControlEndpoint,
+  resolveComputerExtraNetwork,
   resolveDeploymentId,
   resolveScreenNetworkMode,
   resolveScreenPublishTarget,
@@ -442,6 +443,19 @@ describe("graphical computer spec", () => {
     expect(resolveScreenNetworkMode("published")).toBe("published");
     expect(resolveScreenNetworkMode("isolated")).toBe("isolated");
     expect(() => resolveScreenNetworkMode("typo")).toThrow(/Unsupported/);
+  });
+
+  it("limits an optional computer data route to its own deployment", () => {
+    expect(resolveComputerExtraNetwork(undefined, "rakazo-personal")).toBeUndefined();
+    expect(resolveComputerExtraNetwork("rakazo-personal_data", "rakazo-personal")).toBe(
+      "rakazo-personal_data",
+    );
+    expect(() => resolveComputerExtraNetwork("rakazo_data", "rakazo-personal")).toThrow(
+      /must be rakazo-personal_data/,
+    );
+    expect(() => resolveComputerExtraNetwork("rakazo-personal_data", undefined)).toThrow(
+      /requires RAKAZO_DEPLOYMENT_ID/,
+    );
   });
 
   it("uses the host identity for host-run bind mounts without ever using root", () => {

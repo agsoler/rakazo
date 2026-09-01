@@ -25,6 +25,7 @@ import {
   legacyContainerCanBeAdopted,
   legacyNetworkOwnedSolelyBy,
   resolveComputerControlEndpoint,
+  resolveComputerExtraNetwork,
   resolveDeploymentId,
   resolveScreenNetworkMode,
   resolveScreenPublishTarget,
@@ -73,6 +74,10 @@ const computerContext =
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const dataDir = path.resolve(repositoryRoot, process.env.DATA_DIR ?? "./data");
 const deploymentId = resolveDeploymentId(process.env.RAKAZO_DEPLOYMENT_ID);
+const computerExtraNetwork = resolveComputerExtraNetwork(
+  process.env.RAKAZO_COMPUTER_EXTRA_NETWORK,
+  deploymentId,
+);
 let imageReady: Promise<void> | undefined;
 let supervisorInfo: Docker.ContainerInspectInfo | undefined;
 const supervisorToken = resolveSupervisorToken(process.env);
@@ -145,6 +150,7 @@ app.post("/computers", async (c) => {
           (!networkMode || info.HostConfig.NetworkMode === networkMode) &&
           info.Config.User === computerUser
         ) {
+          await connectComputerExtraNetwork(existing);
           if (!info.State.Running) await existing.start();
           const screenUrl = await publishedScreenUrl(
             existing,
@@ -188,6 +194,7 @@ app.post("/computers", async (c) => {
           deploymentId,
         }),
       );
+      await connectComputerExtraNetwork(container);
       await container.start();
       const screenUrl = await publishedScreenUrl(container);
       return c.json({
@@ -945,6 +952,23 @@ async function ensureBotNetwork(botId: string) {
       if (!/already exists/i.test(String(error))) throw error;
     });
   return name;
+}
+
+async function connectComputerExtraNetwork(container: Docker.Container) {
+  if (!computerExtraNetwork) return;
+  const network = docker.getNetwork(computerExtraNetwork);
+  const info = await network.inspect();
+  if (
+    info.Labels?.["com.docker.compose.project"] !== deploymentId ||
+    info.Labels?.["com.docker.compose.network"] !== "data"
+  ) {
+    throw new Error(
+      "configured computer extra network is not this deployment's Compose data network",
+    );
+  }
+  const containerInfo = await container.inspect();
+  if (containerInfo.NetworkSettings.Networks?.[computerExtraNetwork]) return;
+  await network.connect({ Container: container.id });
 }
 
 async function removeBotNetwork(botId: string) {

@@ -108,3 +108,8 @@ The appdata archive contains the complete Team Computer home: shared files, ever
 directory, profiles, and other durable workspace content. The custom Team Computer image includes
 `nano` and the PostgreSQL command-line client (`psql`), so these tools remain available when a
 computer is recreated or a recovery point is restored.
+
+Personal stable also gives its Team Computer an additional connection to only the
+`rakazo-personal_data` network. This makes a restored read-only `postgres:5432` credential file
+usable without exposing PostgreSQL on the Windows host or connecting the computer to another
+Rakazo deployment. The supervisor refuses an extra network that does not match its deployment.

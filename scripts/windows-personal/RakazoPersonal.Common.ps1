@@ -76,9 +76,15 @@ function Set-RakazoPersonalDeploymentIdentity {
     }
     if ($configured -ne $Context.Project) {
         $values.RAKAZO_DEPLOYMENT_ID = $Context.Project
-        Write-RakazoEnvFile -Values $values -Path $Context.EnvFile
-        Protect-RakazoPrivatePath $Context.EnvFile
     }
+    $expectedNetwork = "$($Context.Project)_data"
+    $configuredNetwork = if ($values.Contains("RAKAZO_COMPUTER_EXTRA_NETWORK")) { [string]$values.RAKAZO_COMPUTER_EXTRA_NETWORK } else { "" }
+    if (-not [string]::IsNullOrWhiteSpace($configuredNetwork) -and $configuredNetwork -ne $expectedNetwork) {
+        throw "Personal computer data network is '$configuredNetwork', not '$expectedNetwork'."
+    }
+    $values.RAKAZO_COMPUTER_EXTRA_NETWORK = $expectedNetwork
+    Write-RakazoEnvFile -Values $values -Path $Context.EnvFile
+    Protect-RakazoPrivatePath $Context.EnvFile
 }
 
 function Assert-RakazoPersonalDeploymentIdentity {
@@ -87,6 +93,10 @@ function Assert-RakazoPersonalDeploymentIdentity {
     $values = Read-RakazoEnvFile $Context.EnvFile
     if (-not $values.Contains("RAKAZO_DEPLOYMENT_ID") -or [string]$values.RAKAZO_DEPLOYMENT_ID -ne $Context.Project) {
         throw "Personal deployment identity is missing or incorrect. Run Update-RakazoPersonal.ps1 before starting or backing up personal stable."
+    }
+    $expectedNetwork = "$($Context.Project)_data"
+    if (-not $values.Contains("RAKAZO_COMPUTER_EXTRA_NETWORK") -or [string]$values.RAKAZO_COMPUTER_EXTRA_NETWORK -ne $expectedNetwork) {
+        throw "Personal computer data network is missing or incorrect. Run Update-RakazoPersonal.ps1 before starting or backing up personal stable."
     }
 }
 
@@ -174,6 +184,7 @@ function Set-RakazoPersonalImageSet {
     $values.RAKAZO_COMPUTER_IMAGE = $computerReference.Substring(0, $computerSeparator)
     $values.RAKAZO_COMPUTER_IMAGE_TAG = $computerReference.Substring($computerSeparator + 1)
     $values.RAKAZO_DEPLOYMENT_ID = $Context.Project
+    $values.RAKAZO_COMPUTER_EXTRA_NETWORK = "$($Context.Project)_data"
     Write-RakazoEnvFile -Values $values -Path $Context.EnvFile
     Copy-Item -LiteralPath $ManifestPath -Destination $Context.CurrentImageSetFile -Force
     Protect-RakazoPrivatePath $Context.EnvFile

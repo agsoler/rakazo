@@ -21,6 +21,23 @@ export function resolveDeploymentId(value: string | undefined): string | undefin
   return deploymentId;
 }
 
+export function resolveComputerExtraNetwork(
+  value: string | undefined,
+  deploymentId: string | undefined,
+): string | undefined {
+  const network = value?.trim();
+  if (!network) return undefined;
+  const deployment = resolveDeploymentId(deploymentId);
+  if (!deployment) {
+    throw new Error("RAKAZO_COMPUTER_EXTRA_NETWORK requires RAKAZO_DEPLOYMENT_ID");
+  }
+  const expected = `${deployment}_data`;
+  if (network !== expected) {
+    throw new Error(`RAKAZO_COMPUTER_EXTRA_NETWORK must be ${expected}`);
+  }
+  return network;
+}
+
 export function containerMatchesDeployment(
   labels: Record<string, string> | undefined,
   deploymentId: string | undefined,

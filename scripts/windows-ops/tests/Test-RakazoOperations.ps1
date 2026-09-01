@@ -169,6 +169,7 @@ try {
         Assert-Equal "registry.example/official/computer" $values.RAKAZO_COMPUTER_IMAGE
         Assert-Equal "release-1" $values.RAKAZO_COMPUTER_IMAGE_TAG
         Assert-Equal "rakazo-personal" $values.RAKAZO_DEPLOYMENT_ID
+        Assert-Equal "rakazo-personal_data" $values.RAKAZO_COMPUTER_EXTRA_NETWORK
         [void](Assert-RakazoPersonalActiveImageSet -Context ([pscustomobject]@{
             Project = "rakazo-personal"; EnvFile = $envPath; CurrentImageSetFile = $currentPath; DockerContext = "fixture"
         }))
