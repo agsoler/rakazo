@@ -21,6 +21,7 @@ $ErrorActionPreference = "Stop"
 
 $context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 $config = Assert-RakazoPersonalInitialized $context
+Assert-RakazoPersonalDeploymentIdentity $context
 $imageSet = Assert-RakazoPersonalActiveImageSet -Context $context -VerifyLocalImages
 $imageRefs = @($imageSet.images | ForEach-Object { [string]$_.reference })
 

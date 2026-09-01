@@ -145,6 +145,11 @@
             <h3>These ports are suggestions</h3>
             <p>The guide uses 5200, 5300, and 5400 because three distinct numbers make the safety boundaries easy to see. Rakazo does not require them. The tracked Windows helpers use these defaults; another operator can adopt different non-conflicting ports by changing local configuration and scripts consistently. Personal stable is not created until its initializer and first update run.</p>
           </div>
+
+          <div class="callout callout--plain">
+            <h3>Why bot computers sit beside the Docker stack</h3>
+            <p>Rakazo creates a bot's computer only when it is needed, using the Docker API rather than the fixed Compose file. Docker Desktop therefore lists these containers separately. This fork names development bot computers <code>rakazo-dev-bot-...</code> and personal-stable bot computers <code>rakazo-personal-bot-...</code>. Matching labels and private network names prevent one installation from taking over another installation's bot computer, even after a database is copied.</p>
+          </div>
         </section>
 
         <section id="setup" class="chapter" data-chapter="setup" hidden>
@@ -478,6 +483,7 @@ git push origin main</code></pre>
 .\scripts\windows-personal\Sync-RakazoPersonalBackups.ps1</code></pre>
             </div>
             <p>Every backup saves state. The exact image archive is saved only when the image-set identity changes. Each recovery point has its own encrypted Restic snapshot record, so a later failed sync does not erase earlier success. If encrypted off-machine storage is asleep, the local backup succeeds and Sync retries later.</p>
+            <p>The first Update also records the private deployment identity <code>rakazo-personal</code>. Start, Backup, and Restore check it before acting. This is the safety boundary that gives dynamic bot computers their personal prefix and stops them being confused with development or release containers.</p>
             <p>On a shared NAS, give Rakazo an application-owned encrypted repository such as <code>\\YOUR-NAS\Backups\Applications\Rakazo\personal-restic</code>. The placeholder keeps this public guide machine-neutral. It stores recovery material; it is not a live Docker folder.</p>
           </div>
         </section>

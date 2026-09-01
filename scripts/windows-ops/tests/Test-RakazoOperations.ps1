@@ -50,15 +50,17 @@ function New-BotFixture {
     param(
         [bool]$Managed,
         [string]$Project,
+        [string]$Deployment = "",
         [string]$Source,
         [string]$Destination = "/home/rakazo"
     )
-    $labels = [pscustomobject]@{
+    $labels = [ordered]@{
         'rakazo.managed' = $(if ($Managed) { "true" } else { "false" })
         'com.docker.compose.project' = $Project
     }
+    if ($Deployment) { $labels.'rakazo.deployment' = $Deployment }
     return [pscustomobject]@{
-        Config = [pscustomobject]@{ Labels = $labels }
+        Config = [pscustomobject]@{ Labels = [pscustomobject]$labels }
         Mounts = @([pscustomobject]@{ Source = $Source; Destination = $Destination })
     }
 }
@@ -140,20 +142,21 @@ try {
         $manifest["roles"] = [ordered]@{ app = $images[0].reference; computer = $images[1].reference }
         $manifestPath = Join-Path $directory "official-image-set.json"
         Write-RakazoJsonFile -Value $manifest -Path $manifestPath
-        $context = [pscustomobject]@{ EnvFile = $envPath; CurrentImageSetFile = $currentPath }
+        $context = [pscustomobject]@{ Project = "rakazo-personal"; EnvFile = $envPath; CurrentImageSetFile = $currentPath }
         Set-RakazoPersonalImageSet -Context $context -ManifestPath $manifestPath
         $values = Read-RakazoEnvFile $envPath
         Assert-Equal "registry.example/official/app" $values.RAKAZO_IMAGE
         Assert-Equal "release-1" $values.RAKAZO_IMAGE_TAG
         Assert-Equal "registry.example/official/computer" $values.RAKAZO_COMPUTER_IMAGE
         Assert-Equal "release-1" $values.RAKAZO_COMPUTER_IMAGE_TAG
+        Assert-Equal "rakazo-personal" $values.RAKAZO_DEPLOYMENT_ID
         [void](Assert-RakazoPersonalActiveImageSet -Context ([pscustomobject]@{
-            EnvFile = $envPath; CurrentImageSetFile = $currentPath; DockerContext = "fixture"
+            Project = "rakazo-personal"; EnvFile = $envPath; CurrentImageSetFile = $currentPath; DockerContext = "fixture"
         }))
         $values.RAKAZO_IMAGE_TAG = "not-recorded"
         Write-RakazoEnvFile -Values $values -Path $envPath
         Assert-Throws { Assert-RakazoPersonalActiveImageSet -Context ([pscustomobject]@{
-            EnvFile = $envPath; CurrentImageSetFile = $currentPath; DockerContext = "fixture"
+            Project = "rakazo-personal"; EnvFile = $envPath; CurrentImageSetFile = $currentPath; DockerContext = "fixture"
         }) }
     }
 
@@ -163,6 +166,10 @@ try {
         Assert-True (Test-RakazoBotOwnership -Container $owned -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
         $ownedWithProject = New-BotFixture -Managed $true -Project "rakazo-personal" -Source "$root/homes/team-two"
         Assert-True (Test-RakazoBotOwnership -Container $ownedWithProject -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
+        $ownedWithDeployment = New-BotFixture -Managed $true -Project "" -Deployment "rakazo-personal" -Source "$root/homes/team-scoped"
+        Assert-True (Test-RakazoBotOwnership -Container $ownedWithDeployment -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
+        $wrongDeployment = New-BotFixture -Managed $true -Project "" -Deployment "rakazo-dev" -Source "$root/homes/team-other-scope"
+        Assert-False (Test-RakazoBotOwnership -Container $wrongDeployment -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
         $wrongProject = New-BotFixture -Managed $true -Project "rakazo-dev" -Source "$root/homes/team-three"
         Assert-False (Test-RakazoBotOwnership -Container $wrongProject -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
         $wrongRoot = New-BotFixture -Managed $true -Project "" -Source "/var/lib/docker/volumes/rakazo_appdata/_data/homes/team-four"

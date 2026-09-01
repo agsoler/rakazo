@@ -7,7 +7,82 @@ export const COMPUTER_USER = `${COMPUTER_UID}:${COMPUTER_GID}`;
 export const TEAM_SCREEN_LIMIT = 8;
 export const COMPUTER_CONTROL_PORT = 7070;
 export const SCREEN_HOST = process.env.SANDBOX_SCREEN_HOST ?? "127.0.0.1";
+export const DEPLOYMENT_LABEL = "rakazo.deployment";
 export type ScreenNetworkMode = "published" | "internal" | "isolated";
+
+export function resolveDeploymentId(value: string | undefined): string | undefined {
+  const deploymentId = value?.trim();
+  if (!deploymentId) return undefined;
+  if (!/^[a-z0-9][a-z0-9_.-]{0,31}$/.test(deploymentId)) {
+    throw new Error(
+      "RAKAZO_DEPLOYMENT_ID must be 1-32 lowercase letters, numbers, dots, underscores, or hyphens and start with a letter or number",
+    );
+  }
+  return deploymentId;
+}
+
+export function containerMatchesDeployment(
+  labels: Record<string, string> | undefined,
+  deploymentId: string | undefined,
+) {
+  const actual = labels?.[DEPLOYMENT_LABEL]?.trim();
+  return deploymentId ? actual === deploymentId : !actual;
+}
+
+export function containerUsesHome(
+  mounts: Array<{ Destination?: string; Source?: string }> | undefined,
+  expectedHome: string,
+  platform: NodeJS.Platform = process.platform,
+) {
+  const normalize = (value: string) => {
+    const normalized = value.replaceAll("\\", "/").replace(/\/+$/, "");
+    return platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  const expected = normalize(expectedHome);
+  return Boolean(
+    mounts?.some(
+      (mount) => mount.Destination === "/home/rakazo" && normalize(mount.Source ?? "") === expected,
+    ),
+  );
+}
+
+interface ComputerContainerIdentity {
+  image: string;
+  labels: Record<string, string> | undefined;
+  mounts?: Array<{ Destination?: string; Source?: string }>;
+}
+
+export function containerMatchesComputerIdentity(
+  container: ComputerContainerIdentity,
+  botId: string,
+  workspaceId: string,
+  deploymentId: string | undefined,
+  computerImage = COMPUTER_IMAGE,
+) {
+  const labels = container.labels ?? {};
+  const managed = labels["rakazo.managed"] === "true" || container.image === computerImage;
+  return (
+    managed &&
+    labels["rakazo.botId"] === botId &&
+    labels["rakazo.workspaceId"] === workspaceId &&
+    containerMatchesDeployment(labels, deploymentId)
+  );
+}
+
+export function legacyContainerCanBeAdopted(
+  container: ComputerContainerIdentity,
+  botId: string,
+  workspaceId: string,
+  deploymentId: string | undefined,
+  expectedHome: string,
+  computerImage = COMPUTER_IMAGE,
+) {
+  return Boolean(
+    deploymentId &&
+      containerMatchesComputerIdentity(container, botId, workspaceId, undefined, computerImage) &&
+      containerUsesHome(container.mounts, expectedHome),
+  );
+}
 
 export function resolveScreenNetworkMode(value: string | undefined): ScreenNetworkMode {
   if (!value || value === "published") return "published";
@@ -60,6 +135,7 @@ export interface ComputerCreateInput {
   user?: string;
   controlToken?: string;
   networkMode?: string;
+  deploymentId?: string;
 }
 
 interface PointerInput {
@@ -77,6 +153,7 @@ export type SandboxInput =
 
 export function containerCreateOptions(input: ComputerCreateInput) {
   const ports = computerPortBindings();
+  const deploymentId = resolveDeploymentId(input.deploymentId);
   return {
     Image: input.image,
     name: input.name,
@@ -94,6 +171,7 @@ export function containerCreateOptions(input: ComputerCreateInput) {
       "rakazo.managed": "true",
       "rakazo.botId": input.botId,
       "rakazo.workspaceId": input.workspaceId,
+      ...(deploymentId ? { [DEPLOYMENT_LABEL]: deploymentId } : {}),
     },
     ExposedPorts: ports.ExposedPorts,
     HostConfig: {
@@ -116,20 +194,27 @@ export function sanitizeIdentifier(botId: string) {
   return safe || "box";
 }
 
-export function containerNameFor(botId: string) {
-  return `rakazo-bot-${sanitizeIdentifier(botId)}`;
+export function containerNameFor(botId: string, deploymentId?: string) {
+  const scope = resolveDeploymentId(deploymentId);
+  return scope
+    ? `${scope}-bot-${sanitizeIdentifier(botId)}`
+    : `rakazo-bot-${sanitizeIdentifier(botId)}`;
 }
 
-export function computerNetworkNameFor(botId: string) {
+export function computerNetworkNameFor(botId: string, deploymentId?: string) {
   // Keep distinct botIds on distinct networks even when sanitization collapses
-  // characters (e.g. "a/b" and "ab"). Do not change containerNameFor — that
-  // name must stay stable so an existing computer can resume.
+  // characters (e.g. "a/b" and "ab"). Optional deployment scope also keeps
+  // cloned workspaces isolated on one Docker daemon.
+  const scope = resolveDeploymentId(deploymentId);
   const hash = createHash("sha256").update(botId).digest("hex").slice(0, 32);
-  return `rakazo-computer-${sanitizeIdentifier(botId).slice(0, 32)}-${hash}`;
+  const prefix = scope ? `${scope}-computer` : "rakazo-computer";
+  return `${prefix}-${sanitizeIdentifier(botId).slice(0, 32)}-${hash}`;
 }
 
 /** Current and prior network names used by this PR, for delete cleanup. */
-export function computerNetworkNamesForCleanup(botId: string) {
+export function computerNetworkNamesForCleanup(botId: string, deploymentId?: string) {
+  const scope = resolveDeploymentId(deploymentId);
+  if (scope) return [computerNetworkNameFor(botId, scope)];
   const safe = sanitizeIdentifier(botId);
   const digest = createHash("sha256").update(botId).digest("hex");
   return [

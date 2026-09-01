@@ -24,6 +24,7 @@ $ErrorActionPreference = "Stop"
 
 $context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 [void](Assert-RakazoPersonalInitialized $context)
+Assert-RakazoPersonalDeploymentIdentity $context
 $verified = & (Join-Path $PSScriptRoot "Test-RakazoPersonalRecoveryPoint.ps1") -RecoveryPointDirectory $RecoveryPointDirectory -AsObject
 if (-not $verified) { throw "Recovery-point verification produced no result." }
 $verifiedRecoveryRoot = Split-Path -Parent (Split-Path -Parent $verified.Path)
@@ -103,6 +104,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $verified.Path ".env") -Destination $context.EnvFile -Force
     Copy-Item -LiteralPath (Join-Path $verified.Path "docker-compose.images.yml") -Destination $context.ComposeFile -Force
     Copy-Item -LiteralPath (Join-Path $verified.Path "image-set.json") -Destination $context.CurrentImageSetFile -Force
+    Set-RakazoPersonalDeploymentIdentity $context
     Protect-RakazoPrivatePath $context.EnvFile
     $composeArgs = Get-RakazoPersonalComposeArguments $context
     Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($composeArgs + @("config", "--quiet")) -Quiet | Out-Null

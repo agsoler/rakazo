@@ -68,6 +68,17 @@ repository cannot be recovered without it.
 .\scripts\windows-personal\Get-RakazoPersonalStatus.ps1
 ```
 
+The update command also records deployment identity `rakazo-personal` in the private local `.env`.
+This upgrades personal configuration created before deployment-scoped bot computers were added.
+Start, Backup, and Restore refuse to proceed if that identity is missing or points at another
+deployment; run Update once to repair an older personal configuration.
+
+Bot-computer containers created by personal stable have names beginning `rakazo-personal-bot-` and
+networks beginning `rakazo-personal-computer-`. Docker Desktop lists these dynamic containers beside
+the Compose stack because Rakazo creates them through the Docker API rather than Compose. The prefix
+and the `rakazo.deployment` label show which installation owns them and prevent a cloned database
+from causing personal stable to reuse a development or release bot computer.
+
 Install optional desktop shortcuts only after reviewing their destination:
 
 ```powershell

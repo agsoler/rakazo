@@ -75,6 +75,21 @@ pgdata            + .local/data
 This matters because `pnpm build` does not start the site, and Docker Desktop alone does not host the
 development web application. The start script coordinates both halves.
 
+Bot computers are dynamic: the supervisor creates them directly through Docker rather than declaring
+them as fixed Compose services. Docker Desktop therefore displays them beside, not nested beneath,
+the `rakazo-dev` or `rakazo-personal` stack. This fork gives them deployment-scoped names and labels:
+
+| Owner | Example container prefix | Example network prefix |
+|---|---|---|
+| Development | `rakazo-dev-bot-` | `rakazo-dev-computer-` |
+| Personal stable | `rakazo-personal-bot-` | `rakazo-personal-computer-` |
+| Unconfigured/official release | Existing `rakazo-bot-` behaviour | Existing `rakazo-computer-` behaviour |
+
+The distinction is functional, not merely cosmetic. A restored database can contain the same bot
+and workspace IDs as another installation. Deployment identity prevents one supervisor from finding,
+starting, deleting, or networking another installation's bot computer. The official release keeps
+its existing behaviour because no deployment identity is supplied to it.
+
 ### What each component does
 
 | Component | Job | Runs where | Persistent? |
@@ -430,6 +445,11 @@ controlled promotion:
 5. Start a uniquely named disposable stack on temporary ports and wait for its health checks.
 6. Back up current personal state if port 5400 has already been initialized.
 7. Deploy the tested image set to only `rakazo-personal` and verify ports 5400 and 3300.
+
+The update also writes `RAKAZO_DEPLOYMENT_ID=rakazo-personal` to the ignored personal `.env`. This
+causes future bot computers and their networks to carry the personal prefix and ownership label.
+Existing personal configuration is upgraded by Update; Start, Backup, and Restore fail safely until
+that identity is present.
 
 After the one-time initialization, normal promotion is one command:
 

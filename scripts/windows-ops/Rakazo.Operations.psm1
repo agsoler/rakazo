@@ -367,6 +367,13 @@ function Test-RakazoBotOwnership {
     if ($containerProject -and -not $containerProject.Equals($ExpectedProject, [StringComparison]::OrdinalIgnoreCase)) {
         return $false
     }
+    $containerDeployment = if ($labels.PSObject.Properties.Name -contains 'rakazo.deployment') {
+        [string]$labels.'rakazo.deployment'
+    }
+    else { "" }
+    if ($containerDeployment -and -not $containerDeployment.Equals($ExpectedProject, [StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
     $root = $ExpectedAppDataRoot.Replace('\', '/').TrimEnd('/')
     foreach ($mount in @($Container.Mounts)) {
         if ([string]$mount.Destination -ne "/home/rakazo") { continue }

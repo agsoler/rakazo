@@ -21,6 +21,7 @@ $ErrorActionPreference = "Stop"
 
 $context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 [void](Assert-RakazoPersonalInitialized $context)
+Assert-RakazoPersonalDeploymentIdentity $context
 [void](Assert-RakazoPersonalActiveImageSet -Context $context -VerifyLocalImages)
 $composeArgs = Get-RakazoPersonalComposeArguments $context
 Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($composeArgs + @("config", "--quiet")) -Quiet | Out-Null

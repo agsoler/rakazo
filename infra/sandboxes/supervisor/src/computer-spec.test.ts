@@ -16,10 +16,15 @@ import {
   computerNetworkNameFor,
   computerNetworkNamesForCleanup,
   containerCreateOptions,
+  containerMatchesComputerIdentity,
+  containerMatchesDeployment,
   containerNameFor,
+  containerUsesHome,
   hostComputerUser,
+  legacyContainerCanBeAdopted,
   legacyNetworkOwnedSolelyBy,
   resolveComputerControlEndpoint,
+  resolveDeploymentId,
   resolveScreenNetworkMode,
   resolveScreenPublishTarget,
   screenPorts,
@@ -109,6 +114,133 @@ describe("graphical computer spec", () => {
     expect(names).toContain("rakazo-computer-bot_1");
     expect(names.some((name) => /-[0-9a-f]{8}$/.test(name))).toBe(true);
     expect(names.some((name) => /-[0-9a-f]{32}$/.test(name))).toBe(true);
+  });
+
+  it("validates optional deployment IDs", () => {
+    expect(resolveDeploymentId(undefined)).toBeUndefined();
+    expect(resolveDeploymentId("  ")).toBeUndefined();
+    expect(resolveDeploymentId("rakazo-personal")).toBe("rakazo-personal");
+    expect(() => resolveDeploymentId("Rakazo Personal")).toThrow(/RAKAZO_DEPLOYMENT_ID/);
+    expect(() => resolveDeploymentId(`r${"a".repeat(32)}`)).toThrow(/1-32/);
+  });
+
+  it("scopes container labels, names, and networks only when configured", () => {
+    const deploymentId = "rakazo-personal";
+    const options = containerCreateOptions({
+      name: containerNameFor("team-one", deploymentId),
+      image: COMPUTER_IMAGE,
+      botId: "team-one",
+      workspaceId: "workspace-one",
+      homePath: "/personal/homes/team-one",
+      networkMode: computerNetworkNameFor("team-one", deploymentId),
+      deploymentId,
+    });
+
+    expect(options.name).toBe("rakazo-personal-bot-team-one");
+    expect(options.Labels["rakazo.deployment"]).toBe(deploymentId);
+    expect(options.HostConfig.NetworkMode).toMatch(
+      /^rakazo-personal-computer-team-one-[0-9a-f]{32}$/,
+    );
+    expect(containerNameFor("team-one")).toBe("rakazo-bot-team-one");
+    expect(
+      containerCreateOptions({
+        name: containerNameFor("team-one"),
+        image: COMPUTER_IMAGE,
+        botId: "team-one",
+        workspaceId: "workspace-one",
+        homePath: "/legacy/homes/team-one",
+      }).Labels,
+    ).not.toHaveProperty("rakazo.deployment");
+
+    const scopedCleanup = computerNetworkNamesForCleanup("team-one", deploymentId);
+    expect(scopedCleanup).toEqual([computerNetworkNameFor("team-one", deploymentId)]);
+    expect(scopedCleanup).not.toContain(computerNetworkNameFor("team-one"));
+  });
+
+  it("keeps legacy and configured deployments mutually exclusive", () => {
+    expect(containerMatchesDeployment(undefined, undefined)).toBe(true);
+    expect(containerMatchesDeployment({}, undefined)).toBe(true);
+    expect(containerMatchesDeployment({ "rakazo.deployment": "rakazo-personal" }, undefined)).toBe(
+      false,
+    );
+    expect(
+      containerMatchesDeployment({ "rakazo.deployment": "rakazo-personal" }, "rakazo-personal"),
+    ).toBe(true);
+    expect(
+      containerMatchesDeployment({ "rakazo.deployment": "rakazo-dev" }, "rakazo-personal"),
+    ).toBe(false);
+  });
+
+  it("adopts a legacy container only when its exact computer home belongs to the deployment", () => {
+    const labels = {
+      "rakazo.managed": "true",
+      "rakazo.botId": "team-one",
+      "rakazo.workspaceId": "workspace-one",
+    };
+    const mounts = [{ Destination: "/home/rakazo", Source: "/personal/homes/team-one" }];
+    const legacy = { image: COMPUTER_IMAGE, labels, mounts };
+
+    expect(
+      legacyContainerCanBeAdopted(
+        legacy,
+        "team-one",
+        "workspace-one",
+        "rakazo-personal",
+        "/personal/homes/team-one",
+      ),
+    ).toBe(true);
+    expect(
+      legacyContainerCanBeAdopted(
+        legacy,
+        "team-one",
+        "workspace-one",
+        "rakazo-personal",
+        "/release/homes/team-one",
+      ),
+    ).toBe(false);
+    expect(
+      legacyContainerCanBeAdopted(
+        { ...legacy, labels: { ...labels, "rakazo.deployment": "rakazo-dev" } },
+        "team-one",
+        "workspace-one",
+        "rakazo-personal",
+        "/personal/homes/team-one",
+      ),
+    ).toBe(false);
+    expect(
+      containerMatchesComputerIdentity(
+        { ...legacy, labels: { ...labels, "rakazo.deployment": "rakazo-personal" } },
+        "team-one",
+        "workspace-one",
+        "rakazo-personal",
+      ),
+    ).toBe(true);
+    expect(containerMatchesComputerIdentity(legacy, "team-one", "workspace-one", undefined)).toBe(
+      true,
+    );
+    expect(
+      containerMatchesComputerIdentity(
+        { ...legacy, labels: { ...labels, "rakazo.deployment": "rakazo-personal" } },
+        "team-one",
+        "workspace-one",
+        undefined,
+      ),
+    ).toBe(false);
+
+    expect(
+      containerUsesHome(
+        [{ Destination: "/home/rakazo", Source: "C:\\Rakazo\\personal\\homes\\team-one" }],
+        "c:/rakazo/personal/homes/team-one/",
+        "win32",
+      ),
+    ).toBe(true);
+    expect(
+      containerUsesHome(
+        [{ Destination: "/workspace", Source: "/personal/homes/team-one" }],
+        "/personal/homes/team-one",
+        "linux",
+      ),
+    ).toBe(false);
   });
 
   it("skips legacy network removal when another bot is still attached", () => {

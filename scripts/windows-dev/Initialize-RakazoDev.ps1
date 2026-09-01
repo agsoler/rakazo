@@ -49,6 +49,7 @@ $values = [ordered]@{
     SANDBOX_SUPERVISOR_TOKEN    = New-HexSecret 32
     SCREEN_PROXY_SECRET         = New-HexSecret 32
     SANDBOX_PROVIDER            = "docker"
+    RAKAZO_DEPLOYMENT_ID        = "rakazo-dev"
     AGENT_RUNTIME               = "pi"
     WAKEUP_DRIVER               = "graphile"
     RAKAZO_LOCAL_MODELS         = $Models -join ","

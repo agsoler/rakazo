@@ -58,6 +58,7 @@ $values = [ordered]@{
     RAKAZO_IMAGE_TAG = $appTag
     RAKAZO_COMPUTER_IMAGE = "rakazo-personal/computer"
     RAKAZO_COMPUTER_IMAGE_TAG = $computerTag
+    RAKAZO_DEPLOYMENT_ID = $project
     SANDBOX_PROVIDER = "docker"
 }
 Write-RakazoEnvFile -Values $values -Path $envFile

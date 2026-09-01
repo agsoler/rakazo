@@ -54,6 +54,7 @@ $values = [ordered]@{
     RAKAZO_IMAGE_TAG = "not-built"
     RAKAZO_COMPUTER_IMAGE = "rakazo-personal/computer"
     RAKAZO_COMPUTER_IMAGE_TAG = "not-built"
+    RAKAZO_DEPLOYMENT_ID = $context.Project
     SANDBOX_PROVIDER = "docker"
     RAKAZO_LOCAL_MODELS = $Models -join ","
     RAKAZO_LOCAL_MODELS_URL = "http://host.docker.internal:11434/v1"

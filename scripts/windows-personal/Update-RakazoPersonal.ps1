@@ -22,6 +22,7 @@ $ErrorActionPreference = "Stop"
 
 $context = Get-RakazoPersonalCommandContext -DockerContext $DockerContext -DeploymentRoot $DeploymentRoot -RecoveryRoot $RecoveryRoot
 [void](Assert-RakazoPersonalInitialized $context)
+Set-RakazoPersonalDeploymentIdentity $context
 
 & (Join-Path $PSScriptRoot "Test-RakazoPersonalPrerequisites.ps1") -DockerContext $DockerContext
 if ($LASTEXITCODE -ne 0) { throw "Personal stable prerequisites failed." }

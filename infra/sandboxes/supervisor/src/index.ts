@@ -18,10 +18,14 @@ import {
   computerNetworkNameFor,
   computerNetworkNamesForCleanup,
   containerCreateOptions,
+  containerMatchesComputerIdentity,
+  containerMatchesDeployment,
   containerNameFor,
   hostComputerUser,
+  legacyContainerCanBeAdopted,
   legacyNetworkOwnedSolelyBy,
   resolveComputerControlEndpoint,
+  resolveDeploymentId,
   resolveScreenNetworkMode,
   resolveScreenPublishTarget,
   SCREEN_HOST,
@@ -67,6 +71,7 @@ const computerContext =
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../computer");
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const dataDir = path.resolve(repositoryRoot, process.env.DATA_DIR ?? "./data");
+const deploymentId = resolveDeploymentId(process.env.RAKAZO_DEPLOYMENT_ID);
 let imageReady: Promise<void> | undefined;
 let supervisorInfo: Docker.ContainerInspectInfo | undefined;
 const supervisorToken = resolveSupervisorToken(process.env);
@@ -129,11 +134,12 @@ app.post("/computers", async (c) => {
       if (hostUid !== 0) await mkdir(serviceHomePath, { recursive: true });
       const homePath = hostHomePath(serviceHomePath, runtimeInfo);
       const computerUser = runtimeInfo ? COMPUTER_USER : hostComputerUser(hostUid, hostGid);
-      const existing = await findBotContainer(body.botId, body.workspaceId);
+      const existing = await findBotContainer(body.botId, body.workspaceId, homePath);
       if (existing) {
         const info = await existing.inspect();
         const desired = await docker.getImage(COMPUTER_IMAGE).inspect();
         if (
+          containerMatchesDeployment(info.Config.Labels, deploymentId) &&
           info.Image === desired.Id &&
           (!networkMode || info.HostConfig.NetworkMode === networkMode) &&
           info.Config.User === computerUser
@@ -167,7 +173,7 @@ app.post("/computers", async (c) => {
       if (existing) {
         await existing.remove({ force: true }).catch(() => undefined);
       }
-      const name = containerNameFor(body.botId);
+      const name = containerNameFor(body.botId, deploymentId);
       const container = await docker.createContainer(
         containerCreateOptions({
           name,
@@ -178,6 +184,7 @@ app.post("/computers", async (c) => {
           user: computerUser,
           networkMode,
           controlToken: randomUUID(),
+          deploymentId,
         }),
       );
       await container.start();
@@ -643,17 +650,41 @@ async function ensureComputerImage() {
   await imageReady;
 }
 
-async function findBotContainer(botId: string, workspaceId: string) {
+async function findBotContainer(botId: string, workspaceId: string, homePath: string) {
   const listed = await docker.listContainers({
     all: true,
     filters: {
       label: [`rakazo.botId=${botId}`, `rakazo.workspaceId=${workspaceId}`],
     },
   });
+  const inspected: Array<{
+    container: Docker.Container;
+    info: Docker.ContainerInspectInfo;
+  }> = [];
   for (const item of listed) {
     const container = docker.getContainer(item.Id);
     const info = await container.inspect();
     if (isRakazoContainer(info, botId, workspaceId)) return container;
+    inspected.push({ container, info });
+  }
+  if (deploymentId) {
+    for (const candidate of inspected) {
+      if (
+        legacyContainerCanBeAdopted(
+          {
+            image: candidate.info.Config.Image,
+            labels: candidate.info.Config.Labels,
+            mounts: candidate.info.Mounts,
+          },
+          botId,
+          workspaceId,
+          deploymentId,
+          homePath,
+        )
+      ) {
+        return candidate.container;
+      }
+    }
   }
   return undefined;
 }
@@ -690,10 +721,11 @@ async function managedScreen(
 }
 
 function isRakazoContainer(info: Docker.ContainerInspectInfo, botId: string, workspaceId: string) {
-  const labels = info.Config.Labels ?? {};
-  const managed = labels["rakazo.managed"] === "true" || info.Config.Image === COMPUTER_IMAGE;
-  return (
-    managed && labels["rakazo.botId"] === botId && labels["rakazo.workspaceId"] === workspaceId
+  return containerMatchesComputerIdentity(
+    { image: info.Config.Image, labels: info.Config.Labels, mounts: info.Mounts },
+    botId,
+    workspaceId,
+    deploymentId,
   );
 }
 
@@ -894,7 +926,7 @@ async function connectComposeScreenPeers(networkName: string, info: Docker.Conta
 }
 
 async function ensureBotNetwork(botId: string) {
-  const name = computerNetworkNameFor(botId);
+  const name = computerNetworkNameFor(botId, deploymentId);
   await docker
     .createNetwork({ Name: name, Driver: "bridge", CheckDuplicate: true })
     .catch((error) => {
@@ -905,8 +937,8 @@ async function ensureBotNetwork(botId: string) {
 }
 
 async function removeBotNetwork(botId: string) {
-  const currentName = computerNetworkNameFor(botId);
-  for (const name of computerNetworkNamesForCleanup(botId)) {
+  const currentName = computerNetworkNameFor(botId, deploymentId);
+  for (const name of computerNetworkNamesForCleanup(botId, deploymentId)) {
     const network = docker.getNetwork(name);
     const info = await network.inspect().catch(() => undefined);
     if (!info) continue;

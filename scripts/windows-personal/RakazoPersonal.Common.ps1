@@ -66,6 +66,30 @@ function Assert-RakazoPersonalInitialized {
     return $config
 }
 
+function Set-RakazoPersonalDeploymentIdentity {
+    param([Parameter(Mandatory)]$Context)
+
+    $values = Read-RakazoEnvFile $Context.EnvFile
+    $configured = if ($values.Contains("RAKAZO_DEPLOYMENT_ID")) { [string]$values.RAKAZO_DEPLOYMENT_ID } else { "" }
+    if (-not [string]::IsNullOrWhiteSpace($configured) -and $configured -ne $Context.Project) {
+        throw "Personal environment belongs to deployment '$configured', not '$($Context.Project)'."
+    }
+    if ($configured -ne $Context.Project) {
+        $values.RAKAZO_DEPLOYMENT_ID = $Context.Project
+        Write-RakazoEnvFile -Values $values -Path $Context.EnvFile
+        Protect-RakazoPrivatePath $Context.EnvFile
+    }
+}
+
+function Assert-RakazoPersonalDeploymentIdentity {
+    param([Parameter(Mandatory)]$Context)
+
+    $values = Read-RakazoEnvFile $Context.EnvFile
+    if (-not $values.Contains("RAKAZO_DEPLOYMENT_ID") -or [string]$values.RAKAZO_DEPLOYMENT_ID -ne $Context.Project) {
+        throw "Personal deployment identity is missing or incorrect. Run Update-RakazoPersonal.ps1 before starting or backing up personal stable."
+    }
+}
+
 function Get-RakazoPersonalComposeArguments {
     param([Parameter(Mandatory)]$Context)
 
@@ -149,6 +173,7 @@ function Set-RakazoPersonalImageSet {
     $values.RAKAZO_IMAGE_TAG = $appReference.Substring($appSeparator + 1)
     $values.RAKAZO_COMPUTER_IMAGE = $computerReference.Substring(0, $computerSeparator)
     $values.RAKAZO_COMPUTER_IMAGE_TAG = $computerReference.Substring($computerSeparator + 1)
+    $values.RAKAZO_DEPLOYMENT_ID = $Context.Project
     Write-RakazoEnvFile -Values $values -Path $Context.EnvFile
     Copy-Item -LiteralPath $ManifestPath -Destination $Context.CurrentImageSetFile -Force
     Protect-RakazoPrivatePath $Context.EnvFile

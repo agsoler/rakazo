@@ -48,5 +48,12 @@ containers, installs the pinned dependencies, runs migrations, builds the bot-co
 launches the web/API/worker processes in the background. It resolves Corepack beside the active Node
 executable so Windows installations with more than one Node version do not silently mix toolchains.
 
+The development supervisor identifies itself as deployment `rakazo-dev`. Bot computers it creates
+therefore have names beginning `rakazo-dev-bot-` and private networks beginning
+`rakazo-dev-computer-`. Docker Desktop still shows these dynamic containers separately rather than
+inside the Compose stack, but their names make their owner unambiguous. The deployment label also
+prevents development from attaching to a personal-stable bot computer after data has been copied
+between environments.
+
 The compatibility patch is applied only inside a temporary detached worktree used to build the
 Windows supervisor image. It does not alter the checked-out feature code.
