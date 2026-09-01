@@ -2,7 +2,7 @@
 type: implementation-plan
 id: "0008"
 title: Deployment-Scoped Bot Computers
-status: in_progress
+status: complete
 owner: Codex
 research: docs/research/0008-research-deployment-scoped-bot-computers.md
 created: 2026-09-01
@@ -210,41 +210,41 @@ Verification freshness:
 
 Gate 1: Scope Review
 
-- [ ] Only planned files changed
-- [ ] Non-goals untouched
-- [ ] Dependencies confirmed
+- [x] Only planned files changed
+- [x] Non-goals untouched
+- [x] Dependencies confirmed
 
 Gate 2: Code Review
 
-- [ ] Existing patterns followed
-- [ ] Error paths handled
-- [ ] No secrets/private data added
-- [ ] Legacy behavior is explicit and tested
-- [ ] No reserved Compose labels forged
+- [x] Existing patterns followed
+- [x] Error paths handled
+- [x] No secrets/private data added
+- [x] Legacy behavior is explicit and tested
+- [x] No reserved Compose labels forged
 
 Gate 3: Test Review
 
-- [ ] Required targeted commands pass or baseline failures are unchanged and classified
-- [ ] New behavior covered
-- [ ] Build is fresh before image creation
+- [x] Required targeted commands pass or baseline failures are unchanged and classified
+- [x] New behavior covered
+- [x] Build is fresh before image creation
 
 Gate 4: Deployment Review
 
-- [ ] Release recovery point validates
-- [ ] Disposable personal stack passes
-- [ ] 5200 and 5300 remain healthy
-- [ ] Empty 5400 backup completes
-- [ ] Release-state migration has not started
+- [x] Release recovery point validates
+- [x] Disposable personal stack passes
+- [x] 5200 and 5300 remain healthy
+- [x] Empty 5400 backup completes
+- [x] Release-state migration has not started
 
 ## Acceptance Criteria
 
-- [ ] Same bot/workspace IDs cannot cross legacy, development, and personal deployments.
-- [ ] Unset identity preserves legacy resource names.
-- [ ] Development and personal identities are configured without editing private existing files.
-- [ ] Protected integration commit is pushed.
-- [ ] Empty personal stable is healthy on the suggested port 5400.
-- [ ] Initial personal recovery point exists and 5200 remains untouched.
-- [ ] Review has no blocking findings.
+- [x] Same bot/workspace IDs cannot cross legacy, development, and personal deployments.
+- [x] Unset identity preserves legacy resource names.
+- [x] Development and personal identities are configured without editing private existing files.
+- [x] Protected integration commit is pushed.
+- [x] Empty personal stable is healthy on the suggested port 5400.
+- [x] Initial personal recovery point exists and 5200 remains untouched.
+- [x] Review has no blocking findings.
 
 ## Rollback Plan
 
@@ -257,20 +257,32 @@ Gate 4: Deployment Review
 
 | Loop | Status | Agent | Action | Evidence | Next |
 |---:|---|---|---|---|---|
-| 1 | planned | Codex | implement scoped lifecycle and tests | research 0008 | targeted verification |
-| 2 | pending | Codex | review and live empty deployment | test output and Docker inspection | migration gate |
+| 1 | complete | Codex | implement scoped lifecycle and tests | targeted identity tests and 9 operations tests pass | live verification |
+| 2 | complete | Codex | review and deploy empty personal stable | image smoke test, three HTTP 200 responses, verified recovery point | separate migration decision |
 
 ## Final Handoff
 
 Changed files:
 
-- Pending implementation.
+- Supervisor identity, lookup, naming, network, and legacy-adoption logic with unit tests.
+- Compose propagation and Windows development/personal initialization, update, restore, backup, and
+  ownership checks.
+- Operator READMEs, handbook, and interactive guide.
+- Windows supervisor compatibility patch refreshed after the new constant changed its context.
 
 Verification run:
 
 - Baseline operations tests: 9 passed.
-- Baseline supervisor suite on Windows: 63 passed, 3 unrelated platform-sensitive failures, 3
-  skipped. Failures are in shell/symlink tests and predate this patch.
+- Targeted deployment tests: 4 passed.
+- Lint, repository type-check, and repository build: passed with repository-pinned pnpm 9.15.0.
+- Supervisor suite on Windows: 67 passed, 3 unrelated baseline platform-sensitive failures, 3
+  skipped. Failures remain in existing shell/process/symlink tests.
+- Repository unit suite: 2,008 passed; 28 unrelated Windows/environment-sensitive failures.
+- Disposable personal image smoke test: passed.
+- Release recovery point `20260901-010315`: verified without restoration.
+- Ports 5200, 5300, and 5400: HTTP 200 concurrently.
+- Empty personal recovery point: verified and linked to image set
+  `sha256-a4049e237c4edb1363c82483104eddfe789e9f68432533d5e5c8d5599ec7122f`.
 
 Known residual risk:
 
@@ -279,11 +291,13 @@ Known residual risk:
 Artifacts:
 
 - Research status: complete
-- Durable decisions transferred to product documentation or ADRs: pending
+- Durable decisions transferred to product documentation or ADRs: yes, in research 0008 and the
+  operator documentation
 - Residual work transferred to the repository's normal tracker: not applicable
-- Plan deleted after acceptance or explicitly retained: pending
+- Plan deleted after acceptance or explicitly retained: retained as implementation evidence until
+  the user accepts the deployment
 - Stale sections removed or updated: yes
 
 Ready for:
 
-- implementation
+- a separately approved migration of the 5200 recovery point into personal stable
