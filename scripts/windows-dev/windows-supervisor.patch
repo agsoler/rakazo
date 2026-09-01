@@ -52,9 +52,9 @@ index c42e8d8..7dbf079 100644
  const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
  const dataDir = path.resolve(repositoryRoot, process.env.DATA_DIR ?? "./data");
 +const clientDataDir = process.env.SANDBOX_CLIENT_DATA_DIR?.trim() || undefined;
+ const deploymentId = resolveDeploymentId(process.env.RAKAZO_DEPLOYMENT_ID);
  let imageReady: Promise<void> | undefined;
  let supervisorInfo: Docker.ContainerInspectInfo | undefined;
- const supervisorToken = resolveSupervisorToken(process.env);
 @@ -119,8 +121,12 @@ app.post("/computers", async (c) => {
        await ensureComputerImage();
        const runtimeInfo = await inspectSupervisorContainer();
