@@ -79,6 +79,13 @@ the Compose stack because Rakazo creates them through the Docker API rather than
 and the `rakazo.deployment` label show which installation owns them and prevent a cloned database
 from causing personal stable to reuse a development or release bot computer.
 
+A one-time import restores the complete bot appdata home, including `shared/`, every `bots/<id>/`
+directory, browser profiles, and other home files. It deliberately clears source container IDs,
+screen URLs, running state, and control/execution leases from PostgreSQL. Those values describe live
+processes rather than durable data. The first computer use in personal stable therefore creates a
+new `rakazo-personal-bot-...` container and mounts the restored home instead of trying to reuse a
+container owned by the source deployment.
+
 Install optional desktop shortcuts only after reviewing their destination:
 
 ```powershell

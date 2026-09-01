@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $modulePath = Join-Path $PSScriptRoot "..\Rakazo.Operations.psm1"
 Import-Module $modulePath -Force
-. (Join-Path $PSScriptRoot "..\..\windows-personal\RakazoPersonal.Common.ps1")
+. (Join-Path $PSScriptRoot "..\..\windows-migration\RakazoMigration.Common.ps1")
 
 $script:Passed = 0
 $script:Failed = 0
@@ -96,6 +96,25 @@ try {
         Assert-False (($output | Out-String).Contains("not-a-real-secret")) "Secret value was written to output"
     }
 
+    Invoke-Test "cross-deployment imports discard only ephemeral computer runtime state" {
+        $sql = Get-RakazoMigrationComputerRuntimeResetSql
+        foreach ($fragment in @(
+            "DELETE FROM computer_execution_leases",
+            "state = 'stopped'",
+            '"providerRef" = NULL',
+            '"screenUrl" = NULL',
+            '"controlHolder" = ''none''',
+            '"controlLeaseId" = NULL',
+            '"executionRunId" = NULL',
+            '"computerSwitching" = FALSE'
+        )) {
+            Assert-True ($sql.Contains($fragment)) "Missing runtime reset fragment: $fragment"
+        }
+        foreach ($durableColumn in @('"homeKey"', '"homeRevision"')) {
+            Assert-False ($sql.Contains($durableColumn)) "Runtime reset must not alter $durableColumn"
+        }
+    }
+
     Invoke-Test "checksums pass intact files and reject tampering" {
         $directory = Join-Path $testRoot "checksums"
         New-Item -ItemType Directory -Path $directory | Out-Null
@@ -168,6 +187,14 @@ try {
         Assert-True (Test-RakazoBotOwnership -Container $ownedWithProject -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
         $ownedWithDeployment = New-BotFixture -Managed $true -Project "" -Deployment "rakazo-personal" -Source "$root/homes/team-scoped"
         Assert-True (Test-RakazoBotOwnership -Container $ownedWithDeployment -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
+        $ownedWithoutComposeLabel = [pscustomobject]@{
+            Config = [pscustomobject]@{ Labels = [pscustomobject]@{
+                'rakazo.managed' = 'true'
+                'rakazo.deployment' = 'rakazo-personal'
+            } }
+            Mounts = @([pscustomobject]@{ Source = "$root/homes/team-no-compose-label"; Destination = "/home/rakazo" })
+        }
+        Assert-True (Test-RakazoBotOwnership -Container $ownedWithoutComposeLabel -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
         $wrongDeployment = New-BotFixture -Managed $true -Project "" -Deployment "rakazo-dev" -Source "$root/homes/team-other-scope"
         Assert-False (Test-RakazoBotOwnership -Container $wrongDeployment -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
         $wrongProject = New-BotFixture -Managed $true -Project "rakazo-dev" -Source "$root/homes/team-three"

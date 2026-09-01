@@ -62,8 +62,10 @@ $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $pointName = "rakazo-personal-$timestamp-$(([string]$imageSet.source.commit).Substring(0, 8))"
 $paths = New-RakazoAtomicDirectory -Root $context.RecoveryPointRoot -Name $pointName
 $composeArgs = Get-RakazoPersonalComposeArguments $context
-$composePs = Get-RakazoDockerOutput -DockerContext $DockerContext -Arguments ($composeArgs + @("ps", "-q"))
-$wasRunning = -not [string]::IsNullOrWhiteSpace($composePs)
+$runningServiceOutput = Get-RakazoDockerOutput -DockerContext $DockerContext -Arguments ($composeArgs + @(
+    "ps", "--services", "--filter", "status=running"
+))
+$runningServices = @($runningServiceOutput -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 $postgresStartedForBackup = $false
 $stoppedBots = @()
 $complete = $false
@@ -149,8 +151,10 @@ requires an exact confirmation phrase before replacing database or appdata.
     $complete = $true
 }
 finally {
-    if ($wasRunning) {
-        try { Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($composeArgs + @("up", "-d")) -Quiet | Out-Null }
+    if ($runningServices.Count) {
+        try {
+            Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($composeArgs + @("up", "-d") + $runningServices) -Quiet | Out-Null
+        }
         catch { Write-Warning "Could not restart the personal stack automatically: $($_.Exception.Message)" }
     }
     elseif ($postgresStartedForBackup) {

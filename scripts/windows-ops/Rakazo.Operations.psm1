@@ -363,7 +363,10 @@ function Test-RakazoBotOwnership {
     if (-not $labels -or [string]$labels.'rakazo.managed' -ne "true") {
         return $false
     }
-    $containerProject = [string]$labels.'com.docker.compose.project'
+    $containerProject = if ($labels.PSObject.Properties.Name -contains 'com.docker.compose.project') {
+        [string]$labels.'com.docker.compose.project'
+    }
+    else { "" }
     if ($containerProject -and -not $containerProject.Equals($ExpectedProject, [StringComparison]::OrdinalIgnoreCase)) {
         return $false
     }

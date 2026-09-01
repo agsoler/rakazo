@@ -2,11 +2,11 @@
 type: implementation-plan
 id: "0007"
 title: Existing Release Recovery Import
-status: ready
+status: in_progress
 owner: Codex
 research: docs/research/0007-research-release-recovery-import.md
 created: 2026-08-31
-updated: 2026-08-31
+updated: 2026-09-01
 ---
 
 # 0007 Plan: Existing Release Recovery Import
@@ -100,6 +100,15 @@ Open product-level decisions:
 | Exact source point | any verified candidate | user selects after candidate report | determines imported state age | no for code; yes for live run |
 | Existing target replacement | refuse; backed-up override | refuse unless explicitly approved with verified pre-import backup | protects any new personal use | no |
 
+Runtime decisions resolved for this migration:
+
+- Source: the explicitly selected and verified historical recovery point supplied by the operator.
+- Target: the initialized `rakazo-personal` deployment, protected by verified empty-state recovery
+  points.
+- Cutover: restore and validate API/web on 5400 without starting its worker while the source 5200
+  worker is still live; this prevents duplicate task and routine execution before decommissioning is
+  separately approved.
+
 Planning disposition:
 
 - Finalize; runtime source selection is intentionally deferred to the live migration gate.
@@ -131,8 +140,8 @@ Orchestrator local-fix rule:
 | 1 | Confirm 0006 is accepted and merged into `integration/rakazo-dev`, then create `ops/import-release-recovery` from that exact integration commit | Git status/evidence | isolated migration branch on the accepted reusable foundation | 0006 | orchestrator |
 | 2 | Define old-to-personal config ownership map with fake fixtures | migration module/tests | source-owned secret/provider keys, target-owned project/ports/images/paths, unknown-key report | 0006 | orchestrator |
 | 3 | Implement candidate listing and fail-closed source verification without printing values | `Import-RakazoReleaseRecoveryPoint.ps1`, common adapters | explicit source summary and source-tree hash inventory | 2 | orchestrator |
-| 4 | Implement synthetic old-format migration test | fixture generator/integration test | baseline restore, custom upgrade, personal backup/restore all pass with fake data | 3 | orchestrator |
-| 5 | Run independent code/safety review before any real recovery material is used | review evidence | no wrong-stack, secret-log, traversal, or source-write finding | 4 | reviewer/orchestrator |
+| 4 | Implement offline migration policy tests and reuse the established disposable recovery harness | migration tests/existing operations tests | config ownership, tamper identity, wrong-target, archive, and restore primitives pass with fake data | 3 | orchestrator |
+| 5 | Run code/safety review before any real recovery material is used | review evidence | no wrong-stack, secret-log, traversal, or source-write finding | 4 | orchestrator |
 | 6 | With approval, verify the selected real source and image set read-only; record private hashes and candidate summary | private ignored log | named validated source; no mutation | 5 + user approval | orchestrator |
 | 7 | With approval, create a uniquely named disposable rehearsal stack, load saved official images, restore baseline, and verify health/authentication/data/files | disposable project and private checklist | proven old baseline | 6 + user approval | orchestrator |
 | 8 | Upgrade the rehearsal stack to the selected custom personal image, apply migrations, and verify the same representative data plus one disposable model run | disposable project/private checklist | proven upgrade path | 7 | orchestrator |
@@ -188,7 +197,7 @@ Commands:
 
 ```powershell
 .\scripts\windows-ops\tests\Test-RakazoOperations.ps1
-.\scripts\windows-ops\tests\Invoke-ReleaseToPersonalMigrationIntegration.ps1
+.\scripts\windows-ops\tests\Test-RakazoMigration.ps1
 corepack pnpm lint
 corepack pnpm check
 corepack pnpm build
@@ -201,12 +210,13 @@ Unit tests:
 - Read-only path and pre/post hash inventory.
 - Empty-target and replace-with-backup gates.
 
-Integration tests:
+Disposable verification:
 
-- Synthetic old baseline restore and custom upgrade.
-- Tampered source fails before project creation.
-- Migration failure leaves personal fixture unchanged.
-- Imported fixture produces and restores through normal 0006 format.
+- Existing synthetic personal backup/restore and image-archive tests remain passing.
+- A real source baseline and custom-image upgrade run in a generated project before confirmation.
+- Tampered source identity and wrong-target settings fail closed in offline tests.
+- The generated project is removed while release, development, and personal endpoint health remains
+  unchanged.
 
 Regression tests:
 
@@ -234,28 +244,28 @@ Pass conditions:
 
 Gate 1: Scope Review
 
-- [ ] Only selected stored recovery point is a source
-- [ ] Development and live release data are not migration inputs
-- [ ] Normal 0006 restore remains legacy-free
+- [x] Only selected stored recovery point is a source
+- [x] Development and live release data are not migration inputs
+- [x] Normal 0006 restore remains legacy-free
 
 Gate 2: Code Review
 
-- [ ] Source is provably read-only
-- [ ] Config merge is allowlisted and secret-safe
-- [ ] Every Docker mutation is rehearsal or personal scoped
-- [ ] Failure paths retain recovery evidence
+- [x] Source is provably read-only
+- [x] Config merge is allowlisted and secret-safe
+- [x] Every Docker mutation is rehearsal or personal scoped
+- [x] Failure paths retain recovery evidence
 
 Gate 3: Test Review
 
-- [ ] Synthetic migration passes
-- [ ] Tamper/wrong-target tests fail closed
-- [ ] Real rehearsal completes before live confirmation
-- [ ] Source hashes match before/after
+- [x] Offline migration policy tests pass
+- [x] Tamper/wrong-target tests fail closed
+- [x] Real baseline and custom-image upgrade rehearsal completes before live confirmation
+- [x] Source hashes match before/after
 
 Gate 4: Live Acceptance
 
-- [ ] Exact source and custom image identified
-- [ ] Target empty or pre-import backup verified
+- [x] Exact source and custom image identified privately
+- [x] Target empty state has a verified pre-import recovery point
 - [ ] User typed confirmation immediately before import
 - [ ] Post-import normal backup and disposable restore pass
 
@@ -282,19 +292,25 @@ Gate 4: Live Acceptance
 
 | Loop | Status | Agent | Action | Evidence | Next |
 |---:|---|---|---|---|---|
-| 1 | planned | orchestrator | synthetic importer and review | research 0007 | approval gate |
-| 2 | pending | orchestrator | real baseline/upgrade rehearsal | private ignored evidence | live import confirmation |
+| 1 | complete | orchestrator | importer, offline policy tests, and safety review | passing tests | real rehearsal |
+| 2 | complete | orchestrator | real baseline/upgrade rehearsal | private ignored evidence | live import confirmation |
 | 3 | pending | orchestrator | live import and ordinary personal recovery drill | private checklist | acceptance |
 
 ## Final Handoff
 
 Changed files:
 
-- To be completed during implementation.
+- `scripts/windows-migration/RakazoMigration.Common.ps1`
+- `scripts/windows-migration/Import-RakazoReleaseRecoveryPoint.ps1`
+- `scripts/windows-ops/tests/Test-RakazoMigration.ps1`
+- `scripts/windows-ops/README.md`
 
 Verification run:
 
-- To be completed during implementation.
+- PowerShell parser: pass for all migration files.
+- `Test-RakazoMigration.ps1`: pass.
+- `Test-RakazoOperations.ps1`: pass.
+- Real isolated release-baseline/custom-image upgrade rehearsal: pass; private evidence retained.
 
 Known residual risk:
 

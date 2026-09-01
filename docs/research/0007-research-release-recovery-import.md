@@ -108,6 +108,12 @@ External:
    Impact: open source files read-only, record pre/post hashes, and leave the entire source tree
    byte-identical.
 
+6. Computer runtime identity does not cross the deployment boundary.
+   The import preserves complete appdata homes and database ownership records, but clears provider
+   container references, screen URLs, running state, switching flags, and control/execution leases.
+   Personal stable provisions its own computer container on first use and mounts the restored home.
+   Impact: sanitize restored runtime fields before starting the target API or worker.
+
 ## Existing Patterns To Reuse
 
 - Release `Test-Sha256Sums`: checksum format compatibility.
