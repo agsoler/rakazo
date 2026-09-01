@@ -27,6 +27,7 @@ import {
   resolveDeploymentId,
   resolveScreenNetworkMode,
   resolveScreenPublishTarget,
+  resolveScreenReadinessTarget,
   screenPorts,
   screenUrlFor,
   xdotoolCommand,
@@ -468,6 +469,27 @@ describe("graphical computer spec", () => {
         containerPort: "6080",
       }),
     ).toEqual({ host: "172.20.0.4", port: "6080" });
+  });
+
+  it("keeps a published screen host-facing while a containerized supervisor probes privately", () => {
+    const networkMode = "rakazo-computer-bot-1";
+    const input = {
+      screenNetwork: "published" as const,
+      networkMode,
+      networks: { [networkMode]: { IPAddress: "172.20.0.4" } },
+      hostPort: "49152",
+      containerPort: "6080",
+      screenHost: "127.0.0.1",
+    };
+    expect(resolveScreenPublishTarget(input)).toEqual({ host: "127.0.0.1", port: "49152" });
+    expect(resolveScreenReadinessTarget({ ...input, supervisorContainerized: true })).toEqual({
+      host: "172.20.0.4",
+      port: "6080",
+    });
+    expect(resolveScreenReadinessTarget({ ...input, supervisorContainerized: false })).toEqual({
+      host: "127.0.0.1",
+      port: "49152",
+    });
   });
 
   it("does not publish computer control port 7070 on the host", () => {

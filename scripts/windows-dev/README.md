@@ -55,5 +55,12 @@ inside the Compose stack, but their names make their owner unambiguous. The depl
 prevents development from attaching to a personal-stable bot computer after data has been copied
 between environments.
 
+Windows source development keeps the web, API, and worker on the host while the supervisor and bot
+computers run in Docker Desktop. The development Compose override therefore publishes computer
+screen ports on host loopback while the containerized supervisor performs readiness checks over the
+private computer network. Without that split, the API receives a Docker-only `192.168.x` screen
+address and Team Computer takeover eventually reports `ETIMEDOUT` even though the computer itself
+is healthy.
+
 The compatibility patch is applied only inside a temporary detached worktree used to build the
 Windows supervisor image. It does not alter the checked-out feature code.

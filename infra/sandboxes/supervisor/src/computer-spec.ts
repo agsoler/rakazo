@@ -266,6 +266,21 @@ export function resolveScreenPublishTarget(input: {
 }
 
 /**
+ * A containerized supervisor probes published screens over the private computer network while the
+ * host-facing URL continues to use the loopback-published port. A host-run supervisor can probe the
+ * same target it publishes.
+ */
+export function resolveScreenReadinessTarget(
+  input: Parameters<typeof resolveScreenPublishTarget>[0] & { supervisorContainerized: boolean },
+): { host: string; port: string } | undefined {
+  if (input.screenNetwork === "published" && input.supervisorContainerized) {
+    const address = input.networkMode ? input.networks?.[input.networkMode]?.IPAddress : undefined;
+    if (address) return { host: address, port: input.containerPort };
+  }
+  return resolveScreenPublishTarget(input);
+}
+
+/**
  * Resolve the in-container control service via its Docker network IP.
  * Control is never host-published; the supervisor reaches 7070 on the
  * container network while the process binds 0.0.0.0 inside the sandbox.

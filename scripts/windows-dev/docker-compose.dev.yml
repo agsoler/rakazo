@@ -5,6 +5,9 @@ services:
     environment:
       SANDBOX_CLIENT_DATA_DIR: ${SANDBOX_CLIENT_DATA_DIR:?Start with scripts/windows-dev/Start-RakazoDev.ps1}
       RAKAZO_DEPLOYMENT_ID: ${RAKAZO_DEPLOYMENT_ID:-rakazo-dev}
+      # The API runs on Windows in source-development mode. Route noVNC through each computer's
+      # loopback-published port instead of returning a Docker-only 192.168.x address to the host.
+      SANDBOX_SCREEN_NETWORK: published
     ports:
       - "127.0.0.1:7091:7091"
     volumes:
