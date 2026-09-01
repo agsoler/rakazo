@@ -168,6 +168,14 @@ try {
         Assert-True (Test-RakazoBotOwnership -Container $ownedWithProject -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
         $ownedWithDeployment = New-BotFixture -Managed $true -Project "" -Deployment "rakazo-personal" -Source "$root/homes/team-scoped"
         Assert-True (Test-RakazoBotOwnership -Container $ownedWithDeployment -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
+        $ownedWithoutComposeLabel = [pscustomobject]@{
+            Config = [pscustomobject]@{ Labels = [pscustomobject]@{
+                'rakazo.managed' = 'true'
+                'rakazo.deployment' = 'rakazo-personal'
+            } }
+            Mounts = @([pscustomobject]@{ Source = "$root/homes/team-no-compose-label"; Destination = "/home/rakazo" })
+        }
+        Assert-True (Test-RakazoBotOwnership -Container $ownedWithoutComposeLabel -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
         $wrongDeployment = New-BotFixture -Managed $true -Project "" -Deployment "rakazo-dev" -Source "$root/homes/team-other-scope"
         Assert-False (Test-RakazoBotOwnership -Container $wrongDeployment -ExpectedAppDataRoot $root -ExpectedProject "rakazo-personal")
         $wrongProject = New-BotFixture -Managed $true -Project "rakazo-dev" -Source "$root/homes/team-three"
