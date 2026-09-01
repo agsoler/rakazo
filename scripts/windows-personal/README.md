@@ -96,3 +96,8 @@ personal state, and requires the exact phrase
 A complete recovery point links the PostgreSQL dump, bot appdata, secret-bearing `.env`, Compose
 configuration, source commit, and exact app, computer, PostgreSQL, and BusyBox images. GitHub alone
 can rebuild software; it cannot recover accounts, conversations, bots, groups, files, or secrets.
+
+The appdata archive contains the complete Team Computer home: shared files, every bot-specific
+directory, profiles, and other durable workspace content. The custom Team Computer image includes
+`nano` and the PostgreSQL command-line client (`psql`), so these tools remain available when a
+computer is recreated or a recovery point is restored.

@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     imagemagick \
     novnc \
     websockify \
+    nano \
+    postgresql-client \
     python3 \
     ca-certificates \
     procps \
