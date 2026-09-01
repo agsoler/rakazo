@@ -101,8 +101,11 @@ personal state, and requires the exact phrase
 ## What is and is not recovered
 
 A complete recovery point links the PostgreSQL dump, bot appdata, secret-bearing `.env`, Compose
-configuration, source commit, and exact app, computer, PostgreSQL, and BusyBox images. GitHub alone
-can rebuild software; it cannot recover accounts, conversations, bots, groups, files, or secrets.
+configuration, source commit, and exact app, computer, PostgreSQL, and BusyBox images. When the
+optional `rakazo_bot_reader` maintenance login exists, the backup also stores its SCRAM password
+hash and read-only grants in a private, checksummed recovery artifact; Restore recreates that login
+after restoring the tables. GitHub alone can rebuild software; it cannot recover accounts,
+conversations, bots, groups, files, logins, or secrets.
 
 The appdata archive contains the complete Team Computer home: shared files, every bot-specific
 directory, profiles, and other durable workspace content. The custom Team Computer image includes

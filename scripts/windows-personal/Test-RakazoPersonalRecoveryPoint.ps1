@@ -18,11 +18,25 @@ $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "..\windows-ops\Rakazo.Operations.psm1") -Force
 
 $point = (Resolve-Path -LiteralPath $RecoveryPointDirectory).Path
+$manifestPath = Join-Path $point "recovery-point.json"
+if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    throw "Incomplete personal recovery point. Missing: recovery-point.json"
+}
+$manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 $required = @("rakazo.pgdump", "rakazo-appdata.tar.gz", ".env", "docker-compose.images.yml", "image-set.json", "recovery-point.json", "RECOVERY.txt", "checksums.sha256")
+$readerRoleArtifact = $null
+if ($manifest.PSObject.Properties.Name -contains "state" -and
+    $null -ne $manifest.state -and
+    $manifest.state.PSObject.Properties.Name -contains "readonlyDatabaseRole") {
+    $readerRoleArtifact = [string]$manifest.state.readonlyDatabaseRole
+    if ($readerRoleArtifact -ne "rakazo-readonly-role.sql") {
+        throw "Unsupported read-only database role artifact path."
+    }
+    $required += $readerRoleArtifact
+}
 $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $point $_) -PathType Leaf) })
 if ($missing.Count) { throw "Incomplete personal recovery point. Missing: $($missing -join ', ')" }
 [void](Assert-RakazoRequiredChecksums -Directory $point -RequiredPaths @($required | Where-Object { $_ -ne "checksums.sha256" }))
-$manifest = Get-Content -Raw -LiteralPath (Join-Path $point "recovery-point.json") | ConvertFrom-Json
 if ($manifest.schemaVersion -ne 1 -or $manifest.kind -ne "rakazo-personal-recovery-point" -or $manifest.project -ne "rakazo-personal") {
     throw "Unsupported or wrong-target recovery-point manifest."
 }

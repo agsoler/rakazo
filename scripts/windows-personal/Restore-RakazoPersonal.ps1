@@ -136,6 +136,28 @@ try {
     )) -Quiet | Out-Null
     Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($composeArgs + @("exec", "-T", "postgres", "rm", "-f", "/tmp/rakazo-restore.pgdump")) -Quiet | Out-Null
 
+    $readerRoleArtifact = $null
+    if ($verified.Manifest.PSObject.Properties.Name -contains "state" -and
+        $null -ne $verified.Manifest.state -and
+        $verified.Manifest.state.PSObject.Properties.Name -contains "readonlyDatabaseRole") {
+        $readerRoleArtifact = [string]$verified.Manifest.state.readonlyDatabaseRole
+    }
+    if (-not [string]::IsNullOrWhiteSpace($readerRoleArtifact)) {
+        $readerRolePath = Join-Path $verified.Path $readerRoleArtifact
+        Invoke-RakazoDocker -DockerContext $DockerContext -Arguments @("cp", $readerRolePath, "${postgresId}:/tmp/rakazo-readonly-role.sql") -Quiet | Out-Null
+        try {
+            Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($composeArgs + @(
+                "exec", "-T", "postgres", "psql", "-U", "rakazo", "-d", "rakazo",
+                "-v", "ON_ERROR_STOP=1", "-f", "/tmp/rakazo-readonly-role.sql"
+            )) -Quiet | Out-Null
+        }
+        finally {
+            Invoke-RakazoNativeCommand -FilePath "docker" -ArgumentList (@("--context", $DockerContext) + $composeArgs + @(
+                "exec", "-T", "postgres", "rm", "-f", "/tmp/rakazo-readonly-role.sql"
+            )) -Quiet -AllowFailure | Out-Null
+        }
+    }
+
     Invoke-RakazoDocker -DockerContext $DockerContext -Arguments ($composeArgs + @("up", "-d")) | Out-Null
     if (-not (Wait-RakazoHttp -Uri "http://127.0.0.1:$($context.ApiPort)/health" -TimeoutSeconds $TimeoutSeconds)) { throw "Restored API did not become healthy." }
     if (-not (Wait-RakazoHttp -Uri "http://127.0.0.1:$($context.WebPort)/" -TimeoutSeconds $TimeoutSeconds)) { throw "Restored web UI did not become healthy." }
